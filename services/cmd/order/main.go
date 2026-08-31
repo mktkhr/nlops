@@ -129,6 +129,42 @@ func main() {
 		return svc.ListOf("order", rows), nil
 	})
 
+	// 注文のキャンセル。キャンセルできる状態かどうかの判断はこのサービスの責務。
+	// LLM も BFF もこの判断をしてはいけない。
+	s.Handle("POST /orders/{order_id}/cancel", func(ctx context.Context, id authctx.Identity, r *http.Request) (any, error) {
+		if err := svc.RequireWrite(id, name); err != nil {
+			return nil, err
+		}
+		oid := svc.P(r, "order_id")
+
+		w := &svc.W{}
+		w.Eq("order_id", oid)
+		if region, _ := id.RegionFilter(name); region != "" {
+			w.Eq("region", region)
+		}
+		cur, err := svc.Row(ctx, s.Pool, `SELECT order_id, status FROM orders.orders`+w.SQL(), w.Args()...)
+		if err == svc.ErrNotFound {
+			return nil, svc.NotFound("注文 %s は存在しないか参照権限がありません", oid)
+		}
+		if err != nil {
+			return nil, err
+		}
+		switch cur["status"] {
+		case "PLACED", "CONFIRMED":
+			// キャンセル可能
+		case "CANCELLED":
+			return nil, svc.Conflict("注文 %s は既にキャンセル済みです", oid)
+		default:
+			return nil, svc.Conflict("注文 %s は %v のためキャンセルできません。出荷済み以降の注文は返品として扱ってください",
+				oid, cur["status"])
+		}
+
+		row, err := svc.Row(ctx, s.Pool,
+			`UPDATE orders.orders SET status = 'CANCELLED' WHERE order_id = $1
+			 RETURNING order_id, customer_id, status, ordered_at, total_amount`, oid)
+		return svc.Detail(name, row), err
+	})
+
 	if err := s.Run(*addr); err != nil {
 		fmt.Fprintln(os.Stderr, "停止:", err)
 		os.Exit(1)

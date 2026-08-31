@@ -13,6 +13,14 @@ export type Navigation = {
   reason?: string
 }
 
+export type Proposal = {
+  command: string
+  title: string
+  arguments: Record<string, unknown>
+  reason?: string
+  confirm?: string
+}
+
 export type Step = {
   iteration: number
   tool?: string
@@ -24,6 +32,7 @@ export type Step = {
   error?: string
   result?: unknown
   navigate?: Navigation
+  proposal?: Proposal
   llmMs: number
 }
 
@@ -38,6 +47,7 @@ export type Done = {
   incomplete: boolean
   toolsUsed: string[]
   navigated: boolean
+  proposed: boolean
 }
 
 export type Order = {
@@ -91,9 +101,33 @@ export function fetchCustomers(
   return get(`/api/customers?${q.toString()}`, userId)
 }
 
+/**
+ * 人間が確認した更新操作を実行する。
+ *
+ * LLM はこの経路を呼べない。画面からの明示的な操作だけが実行に至る。
+ * 実行できるかどうかの業務判断はサービス側にあるので、
+ * 断られた場合はその理由をそのまま表示する。
+ */
+export async function executeCommand(
+  userId: string,
+  command: string,
+  args: Record<string, unknown>,
+): Promise<void> {
+  const res = await fetch('/api/commands/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', [USER_HEADER]: userId },
+    body: JSON.stringify({ command, arguments: args }),
+  })
+  const body = (await res.json()) as { error?: string }
+  if (!res.ok) {
+    throw new Error(body.error ?? `実行に失敗しました (${res.status})`)
+  }
+}
+
 export type AskHandlers = {
   onStep: (step: Step) => void
   onNavigate: (nav: Navigation) => void
+  onProposal: (p: Proposal) => void
   onAnswer: (answer: string) => void
   onDone: (done: Done) => void
   onError: (message: string) => void
@@ -161,6 +195,9 @@ function dispatch(block: string, handlers: AskHandlers): void {
   switch (event) {
     case 'step':
       handlers.onStep(payload as Step)
+      break
+    case 'proposal':
+      handlers.onProposal(payload as Proposal)
       break
     case 'navigate':
       handlers.onNavigate(payload as Navigation)

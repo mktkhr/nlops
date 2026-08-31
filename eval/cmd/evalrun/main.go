@@ -24,6 +24,7 @@ import (
 	"github.com/mktkhr/nlops/eval/internal/golden"
 	"github.com/mktkhr/nlops/orchestrator/loop"
 	"github.com/mktkhr/nlops/pkg/authctx"
+	"github.com/mktkhr/nlops/pkg/command"
 	"github.com/mktkhr/nlops/pkg/llm"
 	"github.com/mktkhr/nlops/pkg/toolschema"
 	"github.com/mktkhr/nlops/pkg/uiroute"
@@ -42,6 +43,7 @@ type outcome struct {
 	ForbidOK   bool    `json:"forbid_ok"`
 	PermOK     bool    `json:"perm_ok"`
 	NavOK      bool    `json:"nav_ok"`
+	PropOK     bool    `json:"prop_ok"`
 	StepsOK    bool    `json:"steps_ok"`
 	Pass       bool    `json:"pass"`
 
@@ -49,6 +51,7 @@ type outcome struct {
 	HitForbidden []string `json:"hit_forbidden,omitempty"`
 	PermNote     string   `json:"perm_note,omitempty"`
 	NavNote      string   `json:"nav_note,omitempty"`
+	PropNote     string   `json:"prop_note,omitempty"`
 
 	Trace *loop.Trace `json:"trace"`
 }
@@ -60,6 +63,7 @@ func main() {
 		modes   = flag.String("modes", "one_stage", "one_stage / two_stage")
 		catPath = flag.String("catalog", "catalog/services.json", "カタログ")
 		rolPath = flag.String("roles", "catalog/roles.json", "ロール定義")
+		cmdPath = flag.String("commands", "catalog/commands.json", "更新操作の定義。空文字で提案を無効化")
 		rtPath  = flag.String("routes", "catalog/routes.json", "画面定義。空文字で画面遷移を無効化")
 		csPath  = flag.String("cases", "eval/golden/cases.json", "ゴールデンセット")
 		outDir  = flag.String("out", "docs/spike-raw", "生ログ出力先")
@@ -124,6 +128,13 @@ func main() {
 			die(err)
 		}
 		runner.Routes = routes
+	}
+	if *cmdPath != "" {
+		cmds, err := command.Load(*cmdPath)
+		if err != nil {
+			die(err)
+		}
+		runner.Commands = cmds
 	}
 	runner.Executor.GuardUnresolvedIDs = !*noGuard
 	runner.Executor.DisableProjection = *noProj
@@ -196,12 +207,21 @@ func grade(c golden.Case, tr *loop.Trace, model, mode, bffURL string) outcome {
 		o.NavOK, o.NavNote = c.Navigate.Check(route, filters)
 	}
 
+	o.PropOK = true
+	if c.Proposal != nil {
+		cmd, args := "", map[string]any{}
+		if tr.Proposal != nil {
+			cmd, args = tr.Proposal.Command, tr.Proposal.Arguments
+		}
+		o.PropOK, o.PropNote = c.Proposal.Check(cmd, args)
+	}
+
 	o.StepsOK = true
 	if c.MaxSteps > 0 && len(tr.Steps) > c.MaxSteps {
 		o.StepsOK = false
 	}
 
-	o.Pass = o.RequiredOK && o.ForbidOK && o.PermOK && o.NavOK && o.StepsOK && tr.Err == ""
+	o.Pass = o.RequiredOK && o.ForbidOK && o.PermOK && o.NavOK && o.PropOK && o.StepsOK && tr.Err == ""
 	return o
 }
 
@@ -344,10 +364,10 @@ func servicesOf(tools []string) []string {
 }
 
 type stat struct {
-	n, pass, req, forbid, perm, nav, steps, errs int
-	svcRecall                                    float64
-	totalMS, promptTok, cachedTok                float64
-	rawB, projB, stepsN                          float64
+	n, pass, req, forbid, perm, nav, prop, steps, errs int
+	svcRecall                                          float64
+	totalMS, promptTok, cachedTok                      float64
+	rawB, projB, stepsN                                float64
 }
 
 func summarize(os_ []outcome) {
@@ -385,6 +405,9 @@ func summarize(os_ []outcome) {
 			if o.NavOK {
 				t.nav++
 			}
+			if o.PropOK {
+				t.prop++
+			}
 			if o.StepsOK {
 				t.steps++
 			}
@@ -404,14 +427,14 @@ func summarize(os_ []outcome) {
 	sort.Strings(cats)
 
 	fmt.Println("\n### 構成別")
-	fmt.Println("| 構成 | n | 総合 | 必須Tool | 禁止Tool回避 | 権限 | 遷移 | step超過なし | 平均step | 平均ms | cache率 |")
-	fmt.Println("|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|")
+	fmt.Println("| 構成 | n | 総合 | 必須Tool | 禁止Tool回避 | 権限 | 遷移 | 提案 | step超過なし | 平均step | 平均ms | cache率 |")
+	fmt.Println("|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|")
 	for _, k := range order {
 		printStat(k, byKey[k])
 	}
 	fmt.Println("\n### カテゴリ別")
-	fmt.Println("| カテゴリ | n | 総合 | 必須Tool | 禁止Tool回避 | 権限 | 遷移 | step超過なし | 平均step | 平均ms | cache率 |")
-	fmt.Println("|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|")
+	fmt.Println("| カテゴリ | n | 総合 | 必須Tool | 禁止Tool回避 | 権限 | 遷移 | 提案 | step超過なし | 平均step | 平均ms | cache率 |")
+	fmt.Println("|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|")
 	for _, c := range cats {
 		printStat(c, byCat[c])
 	}
@@ -423,10 +446,10 @@ func printStat(label string, s *stat) {
 	if s.promptTok > 0 {
 		cache = s.cachedTok / s.promptTok * 100
 	}
-	fmt.Printf("| %s | %d | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.1f | %.0f | %.0f%% |\n",
+	fmt.Printf("| %s | %d | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.1f | %.0f | %.0f%% |\n",
 		label, s.n,
 		float64(s.pass)/n*100, float64(s.req)/n*100, float64(s.forbid)/n*100,
-		float64(s.perm)/n*100, float64(s.nav)/n*100, float64(s.steps)/n*100,
+		float64(s.perm)/n*100, float64(s.nav)/n*100, float64(s.prop)/n*100, float64(s.steps)/n*100,
 		s.stepsN/n, s.totalMS/n, cache)
 }
 
@@ -457,6 +480,9 @@ func failures(os_ []outcome) {
 		if !o.NavOK {
 			fmt.Printf("    遷移: %s\n", o.NavNote)
 		}
+		if !o.PropOK {
+			fmt.Printf("    提案: %s\n", o.PropNote)
+		}
 		if !o.StepsOK {
 			fmt.Printf("    ステップ超過: %d 回\n", len(o.Trace.Steps))
 		}
@@ -474,6 +500,8 @@ func mark(o outcome) string {
 		return "p"
 	case !o.NavOK:
 		return "n"
+	case !o.PropOK:
+		return "w"
 	case !o.StepsOK:
 		return "s"
 	case !o.ForbidOK:

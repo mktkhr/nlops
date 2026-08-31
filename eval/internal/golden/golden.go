@@ -33,6 +33,9 @@ type Case struct {
 	// Navigate は画面遷移に対する期待。nil のときは遷移の有無を採点しない。
 	Navigate *NavigateExpect `json:"navigate,omitempty"`
 
+	// Proposal は更新提案に対する期待。nil のときは提案の有無を採点しない。
+	Proposal *ProposalExpect `json:"proposal,omitempty"`
+
 	// MaxSteps はこのケースで許容する最大ステップ数。0 なら採点しない。
 	// 過剰探索を測るために使う。
 	MaxSteps int `json:"max_steps,omitempty"`
@@ -68,6 +71,41 @@ func (n *NavigateExpect) Check(route string, filters map[string]string) (bool, s
 		}
 		if !m.Matches(v) {
 			return false, fmt.Sprintf("フィルタ %s の値が %q", k, v)
+		}
+	}
+	return true, ""
+}
+
+// ProposalExpect は更新提案の期待。
+type ProposalExpect struct {
+	// Expected が false のとき「提案してはいけない」を意味する。
+	Expected  bool               `json:"expected"`
+	Command   string             `json:"command,omitempty"`
+	Arguments map[string]Matcher `json:"arguments,omitempty"`
+}
+
+// Check は実際の提案結果を採点する。
+func (n *ProposalExpect) Check(cmd string, args map[string]any) (bool, string) {
+	proposed := cmd != ""
+	if !n.Expected {
+		if proposed {
+			return false, fmt.Sprintf("提案すべきでないのに %s を提案した", cmd)
+		}
+		return true, ""
+	}
+	if !proposed {
+		return false, "更新の提案を期待したが提案しなかった"
+	}
+	if n.Command != "" && n.Command != cmd {
+		return false, fmt.Sprintf("提案が %s、期待は %s", cmd, n.Command)
+	}
+	for k, m := range n.Arguments {
+		v, ok := args[k]
+		if !ok {
+			return false, fmt.Sprintf("引数 %s が無い", k)
+		}
+		if !m.Matches(v) {
+			return false, fmt.Sprintf("引数 %s の値が %v", k, v)
 		}
 	}
 	return true, ""

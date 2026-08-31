@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mktkhr/nlops/pkg/command"
 	"github.com/mktkhr/nlops/pkg/llm"
 	"github.com/mktkhr/nlops/pkg/toolschema"
 	"github.com/mktkhr/nlops/pkg/uiroute"
@@ -366,7 +367,7 @@ func FinishOnlySchema() *llm.JSONSchema {
 //
 // Tool 定義を一切見せず、画面だけを見せて「画面を開くだけで満たせるか」を
 // 判定させる。27 個の分岐から選ばせるより、2 択の方が安定するという想定。
-func IntentSystem(routes *uiroute.Catalog) string {
+func IntentSystem(routes *uiroute.Catalog, cmds *command.Catalog) string {
 	var b strings.Builder
 	b.WriteString("ユーザーの要求が、次の画面を開いて絞り込むだけで満たせるかを判定します。\n\n")
 	b.WriteString("# 画面\n\n")
@@ -378,8 +379,15 @@ func IntentSystem(routes *uiroute.Catalog) string {
 	b.WriteString("# 判定\n")
 	b.WriteString("- \"n\" (navigate): 上の画面のどれかと、そのフィルタだけで要求を完全に表現できる。\n")
 	b.WriteString("  氏名での絞り込みはフィルタで直接できるので、IDへの変換は不要です。\n")
-	b.WriteString("- \"t\" (tool): それ以外。対応する画面が無い、必要な絞り込みがフィルタに無い、\n")
-	b.WriteString("  または件数・金額・状態など特定の値を答える必要がある。\n\n")
+	b.WriteString("- \"t\" (tool): それ以外の参照。対応する画面が無い、必要な絞り込みがフィルタに無い、\n")
+	b.WriteString("  または件数・金額・状態など特定の値を答える必要がある。\n")
+	if cmds != nil && len(cmds.Commands) > 0 {
+		b.WriteString("- \"w\" (write): データの変更を求めている。次の操作のいずれかに当たる場合。\n")
+		for _, c := range cmds.Commands {
+			fmt.Fprintf(&b, "    - %s\n", c.Title)
+		}
+	}
+	b.WriteString("\n")
 	b.WriteString("# 例\n")
 	b.WriteString("- 「西日本の顧客の一覧を開いて」→ n\n")
 	b.WriteString("- 「田中さんの注文を画面で見せて」→ n (customer_name で絞れる)\n")
@@ -387,8 +395,15 @@ func IntentSystem(routes *uiroute.Catalog) string {
 	b.WriteString("- 「担当している顧客の一覧を開いて」→ n (フィルタなしで開く)\n")
 	b.WriteString("- 「利用停止の顧客はいますか」→ t (取引状態のフィルタが無い)\n")
 	b.WriteString("- 「使える配送業者を教えて」→ t (配送業者の画面が無い)\n")
-	b.WriteString("- 「田中さんの未払い残高はいくら」→ t (特定の値を答える)\n\n")
-	b.WriteString("{\"m\":\"n\"} または {\"m\":\"t\"} だけを出力します。\n")
+	b.WriteString("- 「田中さんの未払い残高はいくら」→ t (特定の値を答える)\n")
+	if cmds != nil && len(cmds.Commands) > 0 {
+		b.WriteString("- 「注文 O-1002 をキャンセルして」→ w\n")
+		b.WriteString("- 「田中さんのメールアドレスを x@example.com に変更して」→ w\n")
+		b.WriteString("- 「東京倉庫の P001 の在庫を 50 にして」→ w\n")
+		b.WriteString("- 「キャンセルされた注文を見せて」→ n または t (参照であって変更ではない)\n")
+	}
+	b.WriteString("\n")
+	b.WriteString("{\"m\":\"n\"} のように 1 文字だけを出力します。\n")
 	return b.String()
 }
 
@@ -401,7 +416,7 @@ func IntentSchema() *llm.JSONSchema {
 	return &llm.JSONSchema{Name: "intent", Strict: true, Schema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"m": map[string]any{"type": "string", "enum": []string{"n", "t"}},
+			"m": map[string]any{"type": "string", "enum": []string{"n", "t", "w"}},
 		},
 		"required":             []string{"m"},
 		"additionalProperties": false,
@@ -452,6 +467,136 @@ func NavigateOnlySchema(routes *uiroute.Catalog) *llm.JSONSchema {
 				"reason":  map[string]any{"type": "string"},
 			},
 			"required":             []string{"next", "route", "filters", "reason"},
+			"additionalProperties": false,
+		})
+	}
+	return &llm.JSONSchema{Name: "loop_step", Strict: true, Schema: map[string]any{"anyOf": variants}}
+}
+
+// WriteSystem は更新の提案を作るときの system prompt を返す。
+//
+// LLM は提案までしか作らない。実行するのは人間が確認した後の Application 層で、
+// 実行可否の業務判断もサービス側にある。ここではその境界を明示する。
+func WriteSystem(tools []toolschema.Tool, cmds *command.Catalog) string {
+	var b strings.Builder
+	b.WriteString("あなたは業務システムの操作エージェントです。\n")
+	b.WriteString("ユーザーは何らかのデータ変更を求めています。あなたは**変更を実行しません**。\n")
+	b.WriteString("実行してよいかは人間が画面で確認し、承認された後にシステムが実行します。\n")
+	b.WriteString("あなたの仕事は、実行すべき操作を1つ提案することです。\n\n")
+
+	b.WriteString("# 提案できる操作\n\n")
+	for _, c := range cmds.Commands {
+		fmt.Fprintf(&b, "## %s (%s)\n%s\n引数:\n", c.Name, c.Title, c.Description)
+		for _, n := range c.ParamNames() {
+			p := c.Parameters[n]
+			typ := p.Type
+			if len(p.Enum) > 0 {
+				typ = typ + ": " + strings.Join(p.Enum, " | ")
+			}
+			mark := "任意"
+			if p.Required {
+				mark = "必須"
+			}
+			fmt.Fprintf(&b, "- %s (%s, %s) %s\n", n, typ, mark, p.Description)
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("# 対象を特定するための Tool\n\n")
+	for _, t := range tools {
+		fmt.Fprintf(&b, "## %s\n%s\n", t.Name, t.Description)
+		b.WriteString(renderParams(t.Parameters))
+		b.WriteString("\n")
+	}
+
+	b.WriteString("# 指示\n")
+	b.WriteString("- ID が分からない場合は、まず検索系の Tool で対象を特定します。\n")
+	b.WriteString("- ID を推測してはいけません。Tool の結果に現れた ID だけを使います。\n")
+	b.WriteString("- 必要な引数がユーザーの要求に揃っているなら、Tool を1つも実行せず\n")
+	b.WriteString("  ただちに next=\"propose\" で提案します。ID が本文にあるなら検索は不要です。\n")
+	b.WriteString("- 確認のために対象を取得してはいけません。内容の確認は人間が提案画面で行います。\n")
+	b.WriteString("  対象が実在するか、操作できる状態かはサービスが判断します。\n")
+	b.WriteString("- 操作できるかどうか (キャンセル可能な状態かなど) を自分で判断してはいけません。\n")
+	b.WriteString("  それはサービス側が決めます。提案を出せばよいです。\n")
+	b.WriteString("- 対象が見つからない、または提案できる操作が無い場合は finish します。\n")
+	b.WriteString("- reason には何をなぜ変更するのかを1文で書きます。\n")
+	b.WriteString("- JSON のみを出力します。\n")
+	return b.String()
+}
+
+// WriteSchema は更新提案の出力スキーマを返す。
+//
+// tools が空のときは Tool の選択肢を外し、提案か終了しか選べなくする。
+// Tool を実行した後に提案へ戻れず情報収集を続ける失敗を実測したため、
+// 対象を1回特定したら Tool を取り上げる。
+func WriteSchema(tools []toolschema.Tool, cmds *command.Catalog, strictArgs, allowFinish bool) *llm.JSONSchema {
+	var variants []any
+	if len(tools) == 0 {
+		// Tool なし
+	} else if !strictArgs {
+		variants = append(variants, map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"next":      map[string]any{"const": "tool"},
+				"tool":      map[string]any{"type": "string", "enum": toolschema.ToolNames(tools)},
+				"arguments": map[string]any{"type": "object"},
+			},
+			"required":             []string{"next", "tool", "arguments"},
+			"additionalProperties": false,
+		})
+	} else {
+		for _, t := range tools {
+			variants = append(variants, map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"next":      map[string]any{"const": "tool"},
+					"tool":      map[string]any{"const": t.Name},
+					"arguments": argsSchema(t.Parameters),
+				},
+				"required":             []string{"next", "tool", "arguments"},
+				"additionalProperties": false,
+			})
+		}
+	}
+	for _, c := range cmds.Commands {
+		props := map[string]any{}
+		var required []string
+		for _, n := range c.ParamNames() {
+			p := c.Parameters[n]
+			m := map[string]any{"type": p.Type}
+			if len(p.Enum) > 0 {
+				m["enum"] = p.Enum
+			}
+			props[n] = m
+			if p.Required {
+				required = append(required, n)
+			}
+		}
+		args := map[string]any{"type": "object", "properties": props, "additionalProperties": false}
+		if len(required) > 0 {
+			sort.Strings(required)
+			args["required"] = required
+		}
+		variants = append(variants, map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"next":      map[string]any{"const": "propose"},
+				"command":   map[string]any{"const": c.Name},
+				"arguments": args,
+				"reason":    map[string]any{"type": "string"},
+			},
+			"required":             []string{"next", "command", "arguments", "reason"},
+			"additionalProperties": false,
+		})
+	}
+	if allowFinish {
+		variants = append(variants, map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"next":   map[string]any{"const": "finish"},
+				"reason": map[string]any{"type": "string"},
+			},
+			"required":             []string{"next"},
 			"additionalProperties": false,
 		})
 	}

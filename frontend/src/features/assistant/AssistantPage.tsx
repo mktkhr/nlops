@@ -13,10 +13,11 @@ import Typography from '@mui/material/Typography'
 import BlockIcon from '@mui/icons-material/Block'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
+import EditNoteIcon from '@mui/icons-material/EditNote'
 import ErrorIcon from '@mui/icons-material/Error'
 import SendIcon from '@mui/icons-material/Send'
-import { streamAsk } from '../../shared/api/client'
-import type { Done, Navigation, Step } from '../../shared/api/client'
+import { executeCommand, streamAsk } from '../../shared/api/client'
+import type { Done, Navigation, Proposal, Step } from '../../shared/api/client'
 import { PageHeader } from '../../shared/ui/PageHeader'
 import { useUser } from '../../shared/user/user-context'
 
@@ -25,6 +26,7 @@ const EXAMPLES = [
   '西日本の顧客の一覧を開いて',
   '高橋みどりさんに未払いの請求はありますか',
   '在庫が5個を下回っている商品を出して',
+  '注文 O-1002 をキャンセルして',
 ]
 
 /** LLM が返した画面の状態を URL へ変換する。 */
@@ -42,6 +44,7 @@ export function AssistantPage() {
   const [steps, setSteps] = useState<Step[]>([])
   const [answer, setAnswer] = useState('')
   const [done, setDone] = useState<Done | null>(null)
+  const [proposal, setProposal] = useState<Proposal | null>(null)
   const [error, setError] = useState('')
   const [running, setRunning] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
@@ -52,6 +55,7 @@ export function AssistantPage() {
       setSteps([])
       setAnswer('')
       setDone(null)
+      setProposal(null)
       setError('')
       setRunning(true)
 
@@ -65,6 +69,7 @@ export function AssistantPage() {
             onStep: (s) => setSteps((prev) => [...prev, s]),
             // 画面を開くのが答えなので、そのまま遷移する。
             onNavigate: (nav) => navigate(toPath(nav)),
+            onProposal: setProposal,
             onAnswer: setAnswer,
             onDone: setDone,
             onError: setError,
@@ -161,6 +166,13 @@ export function AssistantPage() {
         </Paper>
       )}
 
+      {proposal && (
+        <ProposalCard
+          proposal={proposal}
+          onDone={() => setProposal(null)}
+        />
+      )}
+
       {answer && (
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
           <Typography variant="overline" color="text.secondary">
@@ -177,7 +189,114 @@ export function AssistantPage() {
   )
 }
 
+/** 更新操作の確認。ここで人間が承認して初めて実行される。 */
+function ProposalCard({
+  proposal,
+  onDone,
+}: {
+  proposal: Proposal
+  onDone: () => void
+}) {
+  const { current } = useUser()
+  const [running, setRunning] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  const run = async () => {
+    if (!current) return
+    setRunning(true)
+    setResult(null)
+    try {
+      await executeCommand(current.userId, proposal.command, proposal.arguments)
+      setResult({ ok: true, message: '実行しました。' })
+    } catch (e) {
+      setResult({ ok: false, message: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <Paper variant="outlined" sx={{ p: 2, mb: 2, borderColor: 'warning.main' }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
+        <EditNoteIcon fontSize="small" color="warning" />
+        <Typography variant="overline" color="text.secondary">
+          操作の提案（まだ実行されていません）
+        </Typography>
+      </Stack>
+
+      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+        {proposal.title}
+      </Typography>
+      {proposal.reason && (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+          {proposal.reason}
+        </Typography>
+      )}
+
+      <Box
+        component="dl"
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: 'max-content 1fr',
+          columnGap: 2,
+          rowGap: 0.5,
+          my: 1.5,
+        }}
+      >
+        {Object.entries(proposal.arguments).map(([k, v]) => (
+          <Box key={k} sx={{ display: 'contents' }}>
+            <Typography component="dt" variant="body2" color="text.secondary">
+              {k}
+            </Typography>
+            <Typography component="dd" variant="body2" sx={{ m: 0, fontFamily: 'monospace' }}>
+              {String(v)}
+            </Typography>
+          </Box>
+        ))}
+      </Box>
+
+      {proposal.confirm && !result && (
+        <Alert severity="warning" sx={{ mb: 1.5 }}>
+          {proposal.confirm}
+        </Alert>
+      )}
+
+      {result ? (
+        <Alert severity={result.ok ? 'success' : 'error'}>{result.message}</Alert>
+      ) : (
+        <Stack direction="row" spacing={1}>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={() => void run()}
+            disabled={running}
+            startIcon={running ? <CircularProgress size={16} /> : undefined}
+          >
+            実行する
+          </Button>
+          <Button variant="outlined" onClick={onDone} disabled={running}>
+            取り消す
+          </Button>
+        </Stack>
+      )}
+    </Paper>
+  )
+}
+
 function StepRow({ step }: { step: Step }) {
+  if (step.proposal) {
+    return (
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+        <EditNoteIcon fontSize="small" color="warning" />
+        <Typography variant="body2" color="text.secondary">
+          操作を提案しました:{' '}
+          <Box component="span" sx={{ fontFamily: 'monospace' }}>
+            {step.proposal.command}
+          </Box>
+        </Typography>
+      </Stack>
+    )
+  }
   if (step.navigate) {
     return (
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>

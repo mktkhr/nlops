@@ -1,0 +1,44 @@
+{
+  "version": "1",
+  "note": "LLM が『提案』として生成してよい更新操作。LLM はここに定義されたコマンドと引数しか書けず、実行はしない。実行は人間が UI で確認した後、BFF 経由で各サービスの更新 API が行う。http は Executor / BFF だけが参照し、LLM には見せない。",
+  "commands": [
+    {
+      "name": "customer.updateContact",
+      "title": "顧客の連絡先を変更する",
+      "description": "顧客のメールアドレスと電話番号を変更する。氏名や担当地域は変更できない。",
+      "service": "customer",
+      "http": { "method": "PATCH", "path": "/customers/{customer_id}/contact" },
+      "parameters": {
+        "customer_id": { "type": "string", "required": true, "description": "顧客ID。氏名しか分からない場合は先に customer.search で解決する。" },
+        "email": { "type": "string", "description": "新しいメールアドレス" },
+        "phone": { "type": "string", "description": "新しい電話番号" }
+      },
+      "confirm": "この顧客の連絡先を変更します。"
+    },
+    {
+      "name": "order.cancel",
+      "title": "注文をキャンセルする",
+      "description": "注文をキャンセルする。キャンセルできるかどうかは注文の状態によって決まるが、その判断は注文サービスが行う。",
+      "service": "order",
+      "http": { "method": "POST", "path": "/orders/{order_id}/cancel" },
+      "parameters": {
+        "order_id": { "type": "string", "required": true, "description": "注文ID" },
+        "reason": { "type": "string", "description": "キャンセル理由" }
+      },
+      "confirm": "この注文をキャンセルします。取り消せません。"
+    },
+    {
+      "name": "inventory.adjustStock",
+      "title": "在庫数を調整する",
+      "description": "指定した倉庫にある商品の在庫数を、指定の数量へ変更する。増減ではなく絶対値で指定する。",
+      "service": "inventory",
+      "http": { "method": "PATCH", "path": "/products/{product_id}/stock" },
+      "parameters": {
+        "product_id": { "type": "string", "required": true, "description": "商品ID" },
+        "warehouse_id": { "type": "string", "required": true, "enum": ["WH_TOKYO", "WH_OSAKA"], "description": "倉庫ID" },
+        "quantity": { "type": "integer", "required": true, "description": "変更後の在庫数" }
+      },
+      "confirm": "この倉庫の在庫数を変更します。"
+    }
+  ]
+}

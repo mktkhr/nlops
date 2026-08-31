@@ -70,6 +70,10 @@ func (s *Server) Handle(pattern string, h Handler) {
 		switch {
 		case errors.Is(err, ErrNotFound):
 			writeErr(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, ErrForbidden):
+			writeErr(w, http.StatusForbidden, err.Error())
+		case errors.Is(err, ErrConflict):
+			writeErr(w, http.StatusConflict, err.Error())
 		case err != nil:
 			s.Log.Error("handler", "path", r.URL.Path, "err", err)
 			writeErr(w, http.StatusInternalServerError, err.Error())
@@ -82,6 +86,39 @@ func (s *Server) Handle(pattern string, h Handler) {
 
 // ErrNotFound は該当なしを表す。
 var ErrNotFound = errors.New("該当するデータがありません")
+
+// ErrConflict は業務ルール上その操作ができないことを表す。
+// 「キャンセルできない状態の注文」など、判断はサービス側の責務。
+var ErrConflict = errors.New("この操作は許可されていません")
+
+// ErrForbidden は権限が足りないことを表す。
+var ErrForbidden = errors.New("権限がありません")
+
+// Conflict は ErrConflict をメッセージ付きで返す。
+func Conflict(format string, a ...any) error {
+	return fmt.Errorf("%w: %s", ErrConflict, fmt.Sprintf(format, a...))
+}
+
+// Forbidden は ErrForbidden をメッセージ付きで返す。
+func Forbidden(format string, a ...any) error {
+	return fmt.Errorf("%w: %s", ErrForbidden, fmt.Sprintf(format, a...))
+}
+
+// Body はリクエストボディを JSON として読む。
+func Body(r *http.Request, v any) error {
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		return fmt.Errorf("リクエストボディを解釈できません: %w", err)
+	}
+	return nil
+}
+
+// RequireWrite は更新権限を確かめる。
+func RequireWrite(id authctx.Identity, service string) error {
+	if !id.CanWrite(service) {
+		return Forbidden("ロール %s は %s を更新できません", id.Role, service)
+	}
+	return nil
+}
 
 // NotFound は ErrNotFound をメッセージ付きで返す。
 func NotFound(format string, a ...any) error {

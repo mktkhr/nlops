@@ -88,6 +88,24 @@ var accessMatrix = map[Role]map[string]Access{
 	RoleSupport:   {"customer": AccessAll, "order": AccessAll, "inventory": AccessAll, "shipping": AccessAll, "billing": AccessDeny},
 }
 
+// writeMatrix は更新操作の可否。参照より厳しくする。
+// support は参照専用、sales は在庫を更新できない、warehouse は在庫だけ更新できる。
+var writeMatrix = map[Role]map[string]bool{
+	RoleAdmin:     {"customer": true, "order": true, "inventory": true, "shipping": true, "billing": true},
+	RoleSales:     {"customer": true, "order": true},
+	RoleWarehouse: {"inventory": true},
+	RoleSupport:   {},
+}
+
+// CanWrite は指定サービスへの更新が許されるかを返す。
+// 参照できることと更新できることは別に判定する。
+func (id Identity) CanWrite(service string) bool {
+	if id.AccessTo(service) == AccessDeny {
+		return false
+	}
+	return writeMatrix[id.Role][service]
+}
+
 // AccessTo はこの識別情報が指定サービスに対して持つアクセス範囲を返す。
 func (id Identity) AccessTo(service string) Access {
 	m, ok := accessMatrix[id.Role]

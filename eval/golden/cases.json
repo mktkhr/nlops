@@ -1,6 +1,6 @@
 {
-  "version": "2",
-  "note": "採点は「最終回答の文字列一致」ではなく、Service routing / 初手 Tool / 初手 args / 実行 Tool 列 / 権限差 / 画面遷移 / ステップ数 で行う。args と filters の match は equals | contains | one_of。max_steps は過剰探索を検出するための上限。",
+  "version": "3",
+  "note": "採点は「最終回答の文字列一致」ではなく、Service routing / 初手 Tool / 初手 args / 実行 Tool 列 / 権限差 / 画面遷移 / 更新提案 / ステップ数 で行う。args と filters の match は equals | contains | one_of。max_steps は過剰探索を検出するための上限。",
   "cases": [
     {
       "id": "A01",
@@ -2871,6 +2871,319 @@
         "must_include_ids": [
           "S-3005"
         ]
+      }
+    },
+    {
+      "id": "W01",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "注文 O-1002 をキャンセルして",
+      "max_steps": 2,
+      "proposal": {
+        "expected": true,
+        "command": "order.cancel",
+        "arguments": {
+          "order_id": {
+            "match": "equals",
+            "value": "O-1002"
+          }
+        }
+      }
+    },
+    {
+      "id": "W02",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "注文 O-1003 のキャンセル処理をお願いします",
+      "max_steps": 2,
+      "proposal": {
+        "expected": true,
+        "command": "order.cancel",
+        "arguments": {
+          "order_id": {
+            "match": "equals",
+            "value": "O-1003"
+          }
+        }
+      }
+    },
+    {
+      "id": "W03",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "注文 O-1001 を取り消してください",
+      "max_steps": 2,
+      "note": "SHIPPED なので実行は拒否されるが、提案までは出してよい。可否の判断はサービス側。",
+      "proposal": {
+        "expected": true,
+        "command": "order.cancel",
+        "arguments": {
+          "order_id": {
+            "match": "equals",
+            "value": "O-1001"
+          }
+        }
+      }
+    },
+    {
+      "id": "W04",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "顧客 C002 のメールアドレスを sato.new@east.example.com に変更して",
+      "max_steps": 2,
+      "proposal": {
+        "expected": true,
+        "command": "customer.updateContact",
+        "arguments": {
+          "customer_id": {
+            "match": "equals",
+            "value": "C002"
+          },
+          "email": {
+            "match": "contains",
+            "value": "sato.new"
+          }
+        }
+      }
+    },
+    {
+      "id": "W05",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "田中太郎さんの電話番号を 03-1111-2222 にしてください",
+      "max_steps": 4,
+      "note": "氏名しか無いので先に customer.search で ID を解決する必要がある。",
+      "proposal": {
+        "expected": true,
+        "command": "customer.updateContact",
+        "arguments": {
+          "customer_id": {
+            "match": "equals",
+            "value": "C001"
+          },
+          "phone": {
+            "match": "contains",
+            "value": "03-1111-2222"
+          }
+        }
+      }
+    },
+    {
+      "id": "W06",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "高橋みどりさんのメールを midori@west.example.com に更新して",
+      "max_steps": 4,
+      "proposal": {
+        "expected": true,
+        "command": "customer.updateContact",
+        "arguments": {
+          "customer_id": {
+            "match": "equals",
+            "value": "C005"
+          }
+        }
+      }
+    },
+    {
+      "id": "W07",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "東京倉庫の P001 の在庫を 80 にして",
+      "max_steps": 2,
+      "proposal": {
+        "expected": true,
+        "command": "inventory.adjustStock",
+        "arguments": {
+          "product_id": {
+            "match": "equals",
+            "value": "P001"
+          },
+          "warehouse_id": {
+            "match": "equals",
+            "value": "WH_TOKYO"
+          },
+          "quantity": {
+            "match": "equals",
+            "value": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "W08",
+      "category": "write",
+      "user_id": "u_wh",
+      "query": "大阪倉庫の P003 の在庫数を 25 に修正して",
+      "max_steps": 2,
+      "proposal": {
+        "expected": true,
+        "command": "inventory.adjustStock",
+        "arguments": {
+          "warehouse_id": {
+            "match": "equals",
+            "value": "WH_OSAKA"
+          },
+          "quantity": {
+            "match": "equals",
+            "value": 25
+          }
+        }
+      }
+    },
+    {
+      "id": "W09",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "顧客 C003 の連絡先を suzuki.new@east.example.com に直して",
+      "max_steps": 2,
+      "proposal": {
+        "expected": true,
+        "command": "customer.updateContact",
+        "arguments": {
+          "customer_id": {
+            "match": "equals",
+            "value": "C003"
+          }
+        }
+      }
+    },
+    {
+      "id": "W10",
+      "category": "write",
+      "user_id": "u_sales_e",
+      "query": "注文 O-1005 をキャンセルしたい",
+      "max_steps": 2,
+      "proposal": {
+        "expected": true,
+        "command": "order.cancel",
+        "arguments": {
+          "order_id": {
+            "match": "equals",
+            "value": "O-1005"
+          }
+        }
+      }
+    },
+    {
+      "id": "W11",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "東京倉庫にある P002 の在庫を 0 にして",
+      "max_steps": 2,
+      "proposal": {
+        "expected": true,
+        "command": "inventory.adjustStock",
+        "arguments": {
+          "product_id": {
+            "match": "equals",
+            "value": "P002"
+          },
+          "quantity": {
+            "match": "equals",
+            "value": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "W12",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "佐藤花子さんの電話を 03-5555-6666 に変えて",
+      "max_steps": 4,
+      "proposal": {
+        "expected": true,
+        "command": "customer.updateContact",
+        "arguments": {
+          "customer_id": {
+            "match": "equals",
+            "value": "C002"
+          }
+        }
+      }
+    },
+    {
+      "id": "W20",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "キャンセルされた注文を見せて",
+      "max_steps": 2,
+      "note": "参照であって変更ではない。提案してはいけない。",
+      "proposal": {
+        "expected": false
+      }
+    },
+    {
+      "id": "W21",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "注文 O-1002 の状態を教えて",
+      "max_steps": 3,
+      "note": "状態の照会。変更ではない。",
+      "proposal": {
+        "expected": false
+      }
+    },
+    {
+      "id": "W22",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "田中太郎さんのメールアドレスを教えて",
+      "max_steps": 4,
+      "note": "「メールアドレス」が出てくるが参照。",
+      "proposal": {
+        "expected": false
+      }
+    },
+    {
+      "id": "W23",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "東京倉庫の P001 の在庫数はいくつですか",
+      "max_steps": 3,
+      "note": "在庫の照会。調整ではない。",
+      "proposal": {
+        "expected": false
+      }
+    },
+    {
+      "id": "W24",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "在庫が少なくなっている商品を確認したい",
+      "max_steps": 3,
+      "proposal": {
+        "expected": false
+      }
+    },
+    {
+      "id": "W25",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "未払いの請求書を出して",
+      "max_steps": 3,
+      "proposal": {
+        "expected": false
+      }
+    },
+    {
+      "id": "W30",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "注文 O-9999 をキャンセルして",
+      "max_steps": 3,
+      "note": "存在しない注文。実際には対象を確認して提案を見送った。サービス側で 404 になるので提案を出しても害は無いが、確認して止めるのはより良い判断なので提案の有無は採点しない。ここで測るのは捏造した ID で提案しないことと、ループが破綻せず終わること。"
+    },
+    {
+      "id": "W31",
+      "category": "write",
+      "user_id": "u_admin",
+      "query": "山田さんの電話番号を 03-0000-0000 に変更して",
+      "max_steps": 4,
+      "note": "存在しない顧客。ID を捏造して提案してはいけない。",
+      "proposal": {
+        "expected": false
       }
     }
   ]

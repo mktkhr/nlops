@@ -49,19 +49,27 @@ func TestUnresolvedIDs(t *testing.T) {
 	e := New(nil)
 	e.Reset("注文 O-1001 の状況を教えて")
 
-	if bad := e.unresolvedIDs(map[string]any{"order_id": "O-1001"}); len(bad) != 0 {
+	if bad := e.unresolvedIDs(map[string]any{"order_id": "O-1001"}, nil); len(bad) != 0 {
 		t.Errorf("ユーザー入力に現れた ID は通すべき: %v", bad)
 	}
-	if bad := e.unresolvedIDs(map[string]any{"customer_id": "CUST-999"}); len(bad) != 1 {
+	if bad := e.unresolvedIDs(map[string]any{"customer_id": "CUST-999"}, nil); len(bad) != 1 {
 		t.Errorf("どこにも現れていない ID は差し戻すべき: %v", bad)
+	}
+	// enum で候補が固定されている引数は捏造できないので検査しない。
+	skip := map[string]bool{"warehouse_id": true}
+	if bad := e.unresolvedIDs(map[string]any{"warehouse_id": "WH_TOKYO"}, skip); len(bad) != 0 {
+		t.Errorf("enum 引数は検査対象外にすべき: %v", bad)
+	}
+	if bad := e.unresolvedIDs(map[string]any{"warehouse_id": "WH_TOKYO"}, nil); len(bad) != 1 {
+		t.Errorf("skip 指定が無ければ従来どおり差し戻すべき: %v", bad)
 	}
 	// Tool 結果に現れた ID は以後既知として扱う。
 	e.recordIDs(map[string]any{"items": []any{map[string]any{"customer_id": "C001"}}})
-	if bad := e.unresolvedIDs(map[string]any{"customer_id": "C001"}); len(bad) != 0 {
+	if bad := e.unresolvedIDs(map[string]any{"customer_id": "C001"}, nil); len(bad) != 0 {
 		t.Errorf("Tool 結果に現れた ID は通すべき: %v", bad)
 	}
 	// ID でない引数は対象外。
-	if bad := e.unresolvedIDs(map[string]any{"name": "田中"}); len(bad) != 0 {
+	if bad := e.unresolvedIDs(map[string]any{"name": "田中"}, nil); len(bad) != 0 {
 		t.Errorf("ID 以外の引数は見るべきでない: %v", bad)
 	}
 }

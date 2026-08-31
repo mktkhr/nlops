@@ -90,6 +90,35 @@ func main() {
 		return svc.ListOf("inventory", rows), nil
 	})
 
+	// 在庫数の調整。増減ではなく絶対値で受ける。
+	s.Handle("PATCH /products/{product_id}/stock", func(ctx context.Context, id authctx.Identity, r *http.Request) (any, error) {
+		if err := svc.RequireWrite(id, name); err != nil {
+			return nil, err
+		}
+		var in struct {
+			WarehouseID string `json:"warehouse_id"`
+			Quantity    *int   `json:"quantity"`
+		}
+		if err := svc.Body(r, &in); err != nil {
+			return nil, err
+		}
+		if in.WarehouseID == "" || in.Quantity == nil {
+			return nil, svc.Conflict("warehouse_id と quantity は必須です")
+		}
+		if *in.Quantity < 0 {
+			return nil, svc.Conflict("在庫数に負の値は指定できません")
+		}
+		pid := svc.P(r, "product_id")
+		row, err := svc.Row(ctx, s.Pool,
+			`UPDATE inventory.stock SET quantity = $3
+			 WHERE product_id = $1 AND warehouse_id = $2
+			 RETURNING product_id, warehouse_id, quantity, reserved`, pid, in.WarehouseID, *in.Quantity)
+		if err == svc.ErrNotFound {
+			return nil, svc.NotFound("商品 %s の %s における在庫がありません", pid, in.WarehouseID)
+		}
+		return svc.Detail(name, row), err
+	})
+
 	if err := s.Run(*addr); err != nil {
 		fmt.Fprintln(os.Stderr, "停止:", err)
 		os.Exit(1)

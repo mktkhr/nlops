@@ -19,10 +19,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
+
+	"bytes"
 
 	"github.com/mktkhr/nlops/orchestrator/loop"
 	"github.com/mktkhr/nlops/pkg/authctx"
+	"github.com/mktkhr/nlops/pkg/command"
 	"github.com/mktkhr/nlops/pkg/toolschema"
 )
 
@@ -33,6 +37,10 @@ type Server struct {
 	Catalog *toolschema.Catalog
 	Log     *slog.Logger
 	HTTP    *http.Client
+
+	// Commands は更新操作の定義。実行の入口はここだけで、
+	// LLM の経路 (Executor) はこの定義を持たない。
+	Commands *command.Catalog
 
 	Model    string
 	Mode     loop.Mode
@@ -64,6 +72,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/ask", s.handleAsk)
 	s.mux.HandleFunc("GET /api/orders", s.handleOrders)
 	s.mux.HandleFunc("GET /api/customers", s.handleCustomers)
+	s.mux.HandleFunc("POST /api/commands/execute", s.handleExecute)
 	s.mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
@@ -148,6 +157,10 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	if tr.Err != "" {
 		send("error", map[string]any{"message": tr.Err})
 	}
+	if tr.Proposal != nil {
+		// 提案は流すだけ。実行は人間が確認してから /api/commands/execute を叩く。
+		send("proposal", tr.Proposal)
+	}
 	if tr.Navigate != nil {
 		send("navigate", map[string]any{
 			"route":   tr.Navigate.Route,
@@ -167,28 +180,30 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 		"incomplete": tr.Incomplete,
 		"toolsUsed":  tr.ToolsUsed(),
 		"navigated":  tr.Navigate != nil,
+		"proposed":   tr.Proposal != nil,
 	})
 	s.Log.Info("ask", "user", id.UserID, "steps", len(tr.Steps), "ms", int(tr.TotalMS))
 }
 
 type stepDTO struct {
-	Iteration int            `json:"iteration"`
-	Tool      string         `json:"tool,omitempty"`
-	Arguments map[string]any `json:"arguments,omitempty"`
-	Finish    bool           `json:"finish,omitempty"`
-	Forced    bool           `json:"forced,omitempty"`
-	Status    int            `json:"status,omitempty"`
-	Denied    bool           `json:"denied,omitempty"`
-	Error     string         `json:"error,omitempty"`
-	Result    any            `json:"result,omitempty"`
+	Iteration int              `json:"iteration"`
+	Tool      string           `json:"tool,omitempty"`
+	Arguments map[string]any   `json:"arguments,omitempty"`
+	Finish    bool             `json:"finish,omitempty"`
+	Forced    bool             `json:"forced,omitempty"`
+	Status    int              `json:"status,omitempty"`
+	Denied    bool             `json:"denied,omitempty"`
+	Error     string           `json:"error,omitempty"`
+	Result    any              `json:"result,omitempty"`
 	Navigate  *loop.Navigation `json:"navigate,omitempty"`
-	LLMms     float64        `json:"llmMs"`
+	Proposal  *loop.Proposal   `json:"proposal,omitempty"`
+	LLMms     float64          `json:"llmMs"`
 }
 
 func toStepDTO(st loop.Step) stepDTO {
 	d := stepDTO{
 		Iteration: st.Iteration, Tool: st.Tool, Arguments: st.Arguments,
-		Finish: st.Finish, Forced: st.Forced, Navigate: st.Navigate, LLMms: st.LLMms,
+		Finish: st.Finish, Forced: st.Forced, Navigate: st.Navigate, Proposal: st.Proposal, LLMms: st.LLMms,
 	}
 	if st.Result != nil {
 		d.Status = st.Result.Status
@@ -197,6 +212,104 @@ func toStepDTO(st loop.Step) stepDTO {
 		d.Result = st.Result.Projected // Projection 済みのものだけを返す
 	}
 	return d
+}
+
+// ---- 更新操作の実行 ----
+
+type executeRequest struct {
+	Command   string         `json:"command"`
+	Arguments map[string]any `json:"arguments"`
+}
+
+// handleExecute は人間が確認した更新操作を実行する。
+//
+// LLM はこの経路を呼べない。呼ぶのは画面からの明示的な操作だけ。
+// 受け取った内容はカタログに対して検証し直す。クライアントの言い分は信用しない。
+// 実行可否の業務判断はサービス側が行うので、ここでは判断しない。
+func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
+	id, err := s.identity(r)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	if s.Commands == nil {
+		writeErr(w, http.StatusNotFound, "更新操作は無効化されています")
+		return
+	}
+	var req executeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "リクエストを解釈できません")
+		return
+	}
+	cmd, ok := s.Commands.ByName(req.Command)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("操作 %q は存在しません", req.Command))
+		return
+	}
+	args, err := cmd.Validate(req.Arguments)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !id.CanWrite(cmd.Service) {
+		writeErr(w, http.StatusForbidden,
+			fmt.Sprintf("ロール %s は %s を更新できません", id.Role, cmd.Service))
+		return
+	}
+
+	base := s.baseURL(cmd.Service)
+	if base == "" {
+		writeErr(w, http.StatusInternalServerError, "サービスの接続先が不明です")
+		return
+	}
+	path := cmd.HTTP.Path
+	body := map[string]any{}
+	for k, v := range args {
+		ph := "{" + k + "}"
+		if strings.Contains(path, ph) {
+			path = strings.ReplaceAll(path, ph, url.PathEscape(fmt.Sprint(v)))
+			continue
+		}
+		body[k] = v
+	}
+	if strings.Contains(path, "{") {
+		writeErr(w, http.StatusBadRequest, "必須のパスパラメータが不足しています")
+		return
+	}
+	payload, _ := json.Marshal(body)
+
+	req2, err := http.NewRequestWithContext(r.Context(), cmd.HTTP.Method, base+path, bytes.NewReader(payload))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	req2.Header.Set("Content-Type", "application/json")
+	id.Apply(req2)
+
+	resp, err := s.HTTP.Do(req2)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("%s サービスへ接続できません", cmd.Service))
+		return
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+
+	s.Log.Info("execute", "user", id.UserID, "command", cmd.Name, "status", resp.StatusCode)
+
+	if resp.StatusCode != http.StatusOK {
+		// 業務ルールによる拒否 (409) も含め、サービスの判断をそのまま返す。
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(raw, &e)
+		msg := e.Error
+		if msg == "" {
+			msg = fmt.Sprintf("%s サービスが %d を返しました", cmd.Service, resp.StatusCode)
+		}
+		writeErr(w, resp.StatusCode, msg)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "command": cmd.Name})
 }
 
 // ---- 画面向けの読み取り API ----

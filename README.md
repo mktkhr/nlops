@@ -36,6 +36,7 @@ LLM が触れないもの: URL / 認証情報 / SQL / ドメインルール / �
 catalog/          サービスと Tool の定義 (LLM に見せる情報と Executor だけが知る情報)
   services.json     実サービス 5 / 24 Tool
   routes.json       LLM が遷移先として選べる画面とフィルタ (§14)
+  commands.json     LLM が提案してよい更新操作 (§13)。実行はしない
   decoys.json       スケール検証用の手書きダミー 10 サービス / 100 Tool (責務が隣接)
   decoys-bulk.json  テンプレート生成用の 45 ドメイン (context への圧力担当)
   scale/            mkcatalog が生成する 44〜504 Tool のカタログ
@@ -55,7 +56,7 @@ frontend/         React + MUI (pnpm + Vite+)
   src/features/     assistant / order / customer
   src/shared/       api / ui / user
 eval/             評価ハーネス
-  golden/cases.json ゴールデンセット (150 ケース / 7 カテゴリ)
+  golden/cases.json ゴールデンセット (170 ケース / 8 カテゴリ)
   cmd/spike/        初手 Tool 選定だけを測る (サービス起動不要)
   cmd/evalrun/      Tool Loop 全体を測る (サービス起動が必要)
   cmd/mkcatalog/    スケール検証用カタログの生成

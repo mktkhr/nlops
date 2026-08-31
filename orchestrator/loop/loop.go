@@ -16,6 +16,7 @@ import (
 
 	"github.com/mktkhr/nlops/orchestrator/executor"
 	"github.com/mktkhr/nlops/pkg/authctx"
+	"github.com/mktkhr/nlops/pkg/command"
 	"github.com/mktkhr/nlops/pkg/llm"
 	"github.com/mktkhr/nlops/pkg/prompt"
 	"github.com/mktkhr/nlops/pkg/toolschema"
@@ -64,6 +65,18 @@ type Navigation struct {
 	Reason  string            `json:"reason,omitempty"`
 }
 
+// Proposal は LLM が生成した更新操作の提案。
+//
+// **これは実行されない。** 人間が画面で確認し、承認して初めて
+// BFF が該当サービスの更新 API を呼ぶ。実行可否の業務判断もサービス側にある。
+type Proposal struct {
+	Command   string         `json:"command"`
+	Title     string         `json:"title"`
+	Arguments map[string]any `json:"arguments"`
+	Reason    string         `json:"reason,omitempty"`
+	Confirm   string         `json:"confirm,omitempty"`
+}
+
 // Step は Tool Loop の 1 反復。
 type Step struct {
 	Iteration int              `json:"iteration"`
@@ -72,6 +85,7 @@ type Step struct {
 	Finish    bool             `json:"finish,omitempty"`
 	Forced    bool             `json:"forced,omitempty"` // 空振り連続で finish を強制した
 	Navigate  *Navigation      `json:"navigate,omitempty"`
+	Proposal  *Proposal        `json:"proposal,omitempty"`
 	Result    *executor.Result `json:"result,omitempty"`
 	LLMms     float64          `json:"llm_ms"`
 	PromptTok int              `json:"prompt_tokens"`
@@ -92,6 +106,9 @@ type Trace struct {
 
 	// Navigate は「画面を開いて絞り込めば済む」と判断された場合の遷移先。
 	Navigate *Navigation `json:"navigate,omitempty"`
+
+	// Proposal は更新操作の提案。実行はされていない。
+	Proposal *Proposal `json:"proposal,omitempty"`
 
 	Intent     string  `json:"intent,omitempty"` // IntentGate 使用時の判定結果
 	IntentMS   float64 `json:"intent_ms"`
@@ -127,6 +144,10 @@ type Runner struct {
 
 	// Routes が設定されているとき、LLM は画面遷移を選べるようになる。
 	Routes *uiroute.Catalog
+
+	// Commands が設定されているとき、LLM は更新操作を「提案」できるようになる。
+	// 提案するだけで、Loop は決して実行しない。
+	Commands *command.Catalog
 }
 
 // New は Runner を作る。
@@ -150,7 +171,8 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 	// モード判定。navigate 側と決まったら Tool の選択肢を渡さない。
 	routes := r.Routes
 	navigateOnly := false
-	if opt.IntentGate && routes != nil {
+	writeMode := false
+	if opt.IntentGate && (routes != nil || r.Commands != nil) {
 		mode, resp, err := r.classifyIntent(ctx, query, opt)
 		if resp != nil {
 			tr.IntentMS = ms(resp.Wall)
@@ -160,9 +182,13 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 		}
 		if err == nil {
 			tr.Intent = mode
-			if mode == "navigate" {
+			switch mode {
+			case "navigate":
 				navigateOnly = true
-			} else {
+			case "write":
+				writeMode = true
+				routes = nil
+			default:
 				routes = nil
 			}
 		}
@@ -196,8 +222,11 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 		{Role: "system", Content: prompt.LoopSystem(tools, routes)},
 		{Role: "user", Content: query},
 	}
-	if navigateOnly {
+	switch {
+	case navigateOnly:
 		msgs[0].Content = prompt.NavigateOnlySystem(routes)
+	case writeMode:
+		msgs[0].Content = prompt.WriteSystem(tools, r.Commands)
 	}
 	// executed は Tool 実行が 1 回でも成立したか。成立するまで finish を許さない。
 	executed := false
@@ -212,8 +241,16 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 	for i := 1; i <= opt.MaxSteps; i++ {
 		step := Step{Iteration: i}
 		schema := prompt.LoopSchema(tools, routes, opt.StrictArgs, executed)
-		if navigateOnly {
+		switch {
+		case navigateOnly:
 			schema = prompt.NavigateOnlySchema(routes)
+		case writeMode:
+			// 対象を1回特定したら Tool を取り上げ、提案か終了だけを残す。
+			writeTools := tools
+			if executed {
+				writeTools = nil
+			}
+			schema = prompt.WriteSchema(writeTools, r.Commands, opt.StrictArgs, executed)
 		}
 		// 空振りが続いたら Tool の選択肢自体を外す。プロンプトでの依頼より確実。
 		forced := opt.StopGuard && executed && barren >= 2
@@ -249,6 +286,7 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 			Tool      string            `json:"tool"`
 			Arguments map[string]any    `json:"arguments"`
 			Route     string            `json:"route"`
+			Command   string            `json:"command"`
 			Filters   map[string]string `json:"filters"`
 			Reason    string            `json:"reason"`
 		}
@@ -265,10 +303,34 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 			goto answer
 		}
 
+		if decision.Next == "propose" {
+			prop, retry := r.resolveProposal(decision.Command, decision.Arguments, decision.Reason)
+			if retry != "" {
+				step.Tool = "propose"
+				step.Result = &executor.Result{Tool: "propose", Error: retry}
+				barren++
+				tr.Steps = append(tr.Steps, step)
+				emit(opt, step)
+				msgs = append(msgs,
+					llm.Message{Role: "assistant", Content: resp.Text()},
+					llm.Message{Role: "user", Content: fmt.Sprintf("[tool_result] propose (step %d/%d)\n{\"error\":%q}", i, opt.MaxSteps, retry)})
+				continue
+			}
+			step.Proposal = prop
+			tr.Proposal = prop
+			tr.Steps = append(tr.Steps, step)
+			emit(opt, step)
+			// 提案を作るのが答え。実行はしないし、最終回答も作らない。
+			tr.Answer = prop.Reason
+			navigated = true
+			goto answer
+		}
+
 		if decision.Next == "navigate" {
 			nav, retry := r.resolveNavigation(decision.Route, decision.Filters, decision.Reason)
 			if retry != "" {
 				// フィルタの ID が未解決。遷移させずに差し戻して選び直させる。
+				step.Tool = "navigate"
 				step.Result = &executor.Result{Tool: "navigate", Error: retry}
 				barren++
 				tr.Steps = append(tr.Steps, step)
@@ -437,7 +499,7 @@ func (r *Runner) classifyIntent(ctx context.Context, query string, opt Options) 
 	resp, err := r.LLM.Chat(ctx, llm.Request{
 		Model: opt.Model, Temperature: 0, MaxTokens: 16,
 		Messages: []llm.Message{
-			{Role: "system", Content: prompt.IntentSystem(r.Routes)},
+			{Role: "system", Content: prompt.IntentSystem(r.Routes, r.Commands)},
 			{Role: "user", Content: query},
 		},
 		ResponseFormat: &llm.ResponseFormat{Type: "json_schema", JSONSchema: prompt.IntentSchema()},
@@ -451,8 +513,11 @@ func (r *Runner) classifyIntent(ctx context.Context, query string, opt Options) 
 	if err := json.Unmarshal([]byte(resp.Text()), &out); err != nil {
 		return "", resp, err
 	}
-	if out.M == "n" {
+	switch out.M {
+	case "n":
 		return "navigate", resp, nil
+	case "w":
+		return "write", resp, nil
 	}
 	return "tool", resp, nil
 }
@@ -472,11 +537,58 @@ func (r *Runner) resolveNavigation(route string, filters map[string]string, reas
 	for k, v := range clean {
 		asAny[k] = v
 	}
-	if bad := r.Executor.UnresolvedIDs(asAny); len(bad) > 0 {
+	if bad := r.Executor.UnresolvedIDs(asAny, enumFilters(def)); len(bad) > 0 {
 		return nil, fmt.Sprintf("%s: フィルタ %s の値は未解決です。先に検索系の Tool で ID を取得してください。",
 			executor.ErrUnresolvedID, strings.Join(bad, ", "))
 	}
 	return &Navigation{Route: def.Path, Filters: clean, Reason: reason}, ""
+}
+
+// resolveProposal は提案されたコマンドと引数を検証する。
+// **ここでは実行しない。** 実行は人間の確認を経て BFF が行う。
+func (r *Runner) resolveProposal(name string, args map[string]any, reason string) (*Proposal, string) {
+	if r.Commands == nil {
+		return nil, "更新操作は利用できません。"
+	}
+	cmd, ok := r.Commands.ByName(name)
+	if !ok {
+		return nil, fmt.Sprintf("操作 %q は存在しません。", name)
+	}
+	clean, err := cmd.Validate(args)
+	if err != nil {
+		return nil, err.Error()
+	}
+	// Tool 引数と同じ基準で ID の出所を確かめる。捏造した ID で更新を提案させない。
+	if bad := r.Executor.UnresolvedIDs(clean, enumCommandParams(cmd)); len(bad) > 0 {
+		return nil, fmt.Sprintf("%s: 引数 %s の値は未解決です。先に検索系の Tool で対象を特定してください。",
+			executor.ErrUnresolvedID, strings.Join(bad, ", "))
+	}
+	return &Proposal{
+		Command: cmd.Name, Title: cmd.Title, Arguments: clean,
+		Reason: reason, Confirm: cmd.Confirm,
+	}, ""
+}
+
+// enumFilters は enum で候補が固定されている画面フィルタ名を返す。
+func enumFilters(r uiroute.Route) map[string]bool {
+	out := map[string]bool{}
+	for k, f := range r.Filters {
+		if len(f.Enum) > 0 {
+			out[k] = true
+		}
+	}
+	return out
+}
+
+// enumCommandParams は enum で候補が固定されているコマンド引数名を返す。
+func enumCommandParams(c command.Command) map[string]bool {
+	out := map[string]bool{}
+	for k, p := range c.Parameters {
+		if len(p.Enum) > 0 {
+			out[k] = true
+		}
+	}
+	return out
 }
 
 func emit(opt Options, s Step) {

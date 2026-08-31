@@ -115,7 +115,7 @@ func (e *Executor) Execute(ctx context.Context, id authctx.Identity, call Call) 
 	}
 
 	if e.GuardUnresolvedIDs {
-		if bad := e.unresolvedIDs(args); len(bad) > 0 {
+		if bad := e.unresolvedIDs(args, enumParams(tool)); len(bad) > 0 {
 			r.Error = fmt.Sprintf("%s: 引数 %s の値は未解決です。先に検索系の Tool で ID を取得してください。",
 				ErrUnresolvedID, strings.Join(bad, ", "))
 			r.Elapsed = time.Since(start).String()
@@ -227,20 +227,23 @@ func invalidEnums(t toolschema.Tool, args map[string]any) []string {
 	return bad
 }
 
-// UnresolvedIDs は未解決の ID 引数を返す。画面遷移のフィルタにも
+// UnresolvedIDs は未解決の ID 引数を返す。画面遷移のフィルタや更新提案にも
 // 同じ検証をかけるため公開している。
-func (e *Executor) UnresolvedIDs(args map[string]any) []string {
+//
+// skip に入れた引数は検査しない。enum で候補が固定されている引数は
+// 捏造しようがないので、呼び出し側が skip に入れる。
+func (e *Executor) UnresolvedIDs(args map[string]any, skip map[string]bool) []string {
 	if !e.GuardUnresolvedIDs {
 		return nil
 	}
-	return e.unresolvedIDs(args)
+	return e.unresolvedIDs(args, skip)
 }
 
 // unresolvedIDs は「ID を要求する引数なのに、まだどこにも現れていない値」を返す。
-func (e *Executor) unresolvedIDs(args map[string]any) []string {
+func (e *Executor) unresolvedIDs(args map[string]any, skip map[string]bool) []string {
 	var bad []string
 	for _, k := range toolschema.SortedKeys(args) {
-		if !idParamName.MatchString(k) {
+		if !idParamName.MatchString(k) || skip[k] {
 			continue
 		}
 		s, ok := args[k].(string)
@@ -252,6 +255,18 @@ func (e *Executor) unresolvedIDs(args map[string]any) []string {
 		}
 	}
 	return bad
+}
+
+// enumParams は enum で候補が固定されている引数名を返す。
+// 候補外の値は文法で生成できないので、出所の検証から外してよい。
+func enumParams(t toolschema.Tool) map[string]bool {
+	out := map[string]bool{}
+	for k, p := range t.Parameters.Properties {
+		if p != nil && len(p.Enum) > 0 {
+			out[k] = true
+		}
+	}
+	return out
 }
 
 // recordIDs は Tool 結果に現れた ID 的な値を既知として記録する。

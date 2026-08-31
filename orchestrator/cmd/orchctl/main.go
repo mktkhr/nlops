@@ -13,6 +13,7 @@ import (
 
 	"github.com/mktkhr/nlops/orchestrator/loop"
 	"github.com/mktkhr/nlops/pkg/authctx"
+	"github.com/mktkhr/nlops/pkg/command"
 	"github.com/mktkhr/nlops/pkg/llm"
 	"github.com/mktkhr/nlops/pkg/toolschema"
 	"github.com/mktkhr/nlops/pkg/uiroute"
@@ -26,6 +27,7 @@ func main() {
 		user    = flag.String("user", "u_admin", "実行ユーザー ID")
 		catPath = flag.String("catalog", "catalog/services.json", "カタログ")
 		rolPath = flag.String("roles", "catalog/roles.json", "ロール定義")
+		cmdPath = flag.String("commands", "catalog/commands.json", "更新操作の定義。空文字で提案を無効化")
 		rtPath  = flag.String("routes", "catalog/routes.json", "画面定義。空文字で画面遷移を無効化")
 		strict  = flag.Bool("strict", true, "Tool ごとの引数スキーマで制約する")
 		steps   = flag.Int("max-steps", 6, "Tool Loop の最大反復数")
@@ -69,6 +71,13 @@ func main() {
 		}
 		runner.Routes = routes
 	}
+	if *cmdPath != "" {
+		cmds, err := command.Load(*cmdPath)
+		if err != nil {
+			die(err)
+		}
+		runner.Commands = cmds
+	}
 	runner.Executor.GuardUnresolvedIDs = !*noGuard
 	runner.Executor.DisableProjection = *noProj
 
@@ -103,6 +112,11 @@ func render(tr *loop.Trace) {
 			fmt.Printf("  %d. finish (%.0fms)\n", s.Iteration, s.LLMms)
 			continue
 		}
+		if s.Proposal != nil {
+			a, _ := json.Marshal(s.Proposal.Arguments)
+			fmt.Printf("  %d. propose %s %s (%.0fms)\n", s.Iteration, s.Proposal.Command, a, s.LLMms)
+			continue
+		}
 		if s.Navigate != nil {
 			f, _ := json.Marshal(s.Navigate.Filters)
 			fmt.Printf("  %d. navigate %s %s (%.0fms)\n", s.Iteration, s.Navigate.Route, f, s.LLMms)
@@ -130,6 +144,11 @@ func render(tr *loop.Trace) {
 	}
 	if tr.Incomplete {
 		fmt.Printf("\n注意: 最大反復数に到達したため打ち切りました\n")
+	}
+	if tr.Proposal != nil {
+		a, _ := json.Marshal(tr.Proposal.Arguments)
+		fmt.Printf("\n--- 操作の提案 (未実行) ---\n%s (%s)\n引数: %s\n確認: %s\n",
+			tr.Proposal.Title, tr.Proposal.Command, a, tr.Proposal.Confirm)
 	}
 	if tr.Navigate != nil {
 		fmt.Printf("\n--- 画面遷移 ---\n%s", tr.Navigate.Route)

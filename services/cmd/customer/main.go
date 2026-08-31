@@ -88,6 +88,37 @@ func main() {
 		return svc.Detail("customer", row), err
 	})
 
+	// 連絡先の更新。氏名・地域・与信は変更させない。
+	s.Handle("PATCH /customers/{customer_id}/contact", func(ctx context.Context, id authctx.Identity, r *http.Request) (any, error) {
+		if err := svc.RequireWrite(id, name); err != nil {
+			return nil, err
+		}
+		var in struct {
+			Email string `json:"email"`
+			Phone string `json:"phone"`
+		}
+		if err := svc.Body(r, &in); err != nil {
+			return nil, err
+		}
+		if in.Email == "" && in.Phone == "" {
+			return nil, svc.Conflict("email か phone のどちらかを指定してください")
+		}
+		cid := svc.P(r, "customer_id")
+		if err := assertVisible(ctx, s, id, cid); err != nil {
+			return nil, err
+		}
+		row, err := svc.Row(ctx, s.Pool,
+			`UPDATE customer.customers
+			 SET email = COALESCE(NULLIF($2,''), email),
+			     phone = COALESCE(NULLIF($3,''), phone)
+			 WHERE customer_id = $1
+			 RETURNING customer_id, name, email, phone`, cid, in.Email, in.Phone)
+		if err == svc.ErrNotFound {
+			return nil, svc.NotFound("顧客 %s は存在しません", cid)
+		}
+		return svc.Detail(name, row), err
+	})
+
 	if err := s.Run(*addr); err != nil {
 		fmt.Fprintln(os.Stderr, "停止:", err)
 		os.Exit(1)
