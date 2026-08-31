@@ -16,3 +16,6 @@ RUN pnpm run build
 FROM nginx:alpine
 COPY --from=build /src/dist /usr/share/nginx/html
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+# 証明書がマウントされたときだけ有効化する構成。
+COPY deploy/tls.conf.disabled /etc/nginx/tls.conf.disabled
+COPY deploy/docker-entrypoint.d/20-enable-tls.sh /docker-entrypoint.d/20-enable-tls.sh

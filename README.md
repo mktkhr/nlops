@@ -81,6 +81,29 @@ LLM はホストの llama-swap (`:11435`) をそのまま使う (VRAM を二重�
 
 ポートを変えるなら `NLOPS_PORT=9000 make up`。
 
+`make up` は `deploy/.env` が無ければ乱数パスワードで作る。このファイルは追跡しない。
+**`POSTGRES_PASSWORD` を後から変えた場合は `make reset` が必要。**
+PostgreSQL はパスワードを初回起動時にしか適用しないので、ボリュームが残っていると
+古いパスワードのままになり、BFF が起動時に落ちる。
+
+### HTTPS
+
+証明書を `deploy/certs/` に置くと自動で HTTPS が有効になる (無ければ HTTP のみ)。
+
+```sh
+# 自己署名。ブラウザは警告を出す。
+NLOPS_HOST=your-host make cert && make up
+
+# Tailscale 上で使うなら、こちらが正しい (本物の証明書が得られる)
+sudo tailscale cert --cert-file deploy/certs/fullchain.pem \
+                    --key-file  deploy/certs/privkey.pem \
+                    "$(tailscale status --json | jq -r .Self.DNSName | sed 's/\.$//')"
+sudo chown "$USER" deploy/certs/*
+make up
+```
+
+既定のポートは HTTP 8081 / HTTPS 8443。
+
 ### ローカルで直接動かす (開発時)
 
 ## 前提

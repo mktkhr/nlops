@@ -13,7 +13,7 @@ x-service: &service
     dockerfile: deploy/Dockerfile.go
   restart: unless-stopped
   environment:
-    NLOPS_DSN: postgres://nlops:nlops@db:5432/nlops?sslmode=disable
+    NLOPS_DSN: postgres://nlops:${POSTGRES_PASSWORD:?deploy/.env が必要です。make env で作成してください}@db:5432/nlops?sslmode=disable
   depends_on:
     db:
       condition: service_healthy
@@ -25,7 +25,7 @@ services:
     environment:
       POSTGRES_DB: nlops
       POSTGRES_USER: nlops
-      POSTGRES_PASSWORD: nlops
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?deploy/.env が必要です。make env で作成してください}
     volumes:
       # Postgres 18 以降は /var/lib/postgresql にマウントする
       # (data 直下に置くと起動時に unused mount として弾かれる)。
@@ -56,10 +56,10 @@ services:
 
   bff:
     <<: *service
-    command: ["bff", "-addr", ":8080", "-base", "http://host.docker.internal:11435"]
+    command: ["bff", "-addr", ":8080", "-base", "${NLOPS_LLM_BASE:-http://host.docker.internal:11435}"]
     environment:
       # 監査の記録先。業務データと同じ DB の audit schema。
-      NLOPS_DSN: postgres://nlops:nlops@db:5432/nlops?sslmode=disable
+      NLOPS_DSN: postgres://nlops:${POSTGRES_PASSWORD:?}@db:5432/nlops?sslmode=disable
       # カタログの base_url を compose 内のホスト名で上書きする。
       NLOPS_BASE_CUSTOMER: http://customer:9101
       NLOPS_BASE_ORDER: http://order:9102
@@ -91,6 +91,10 @@ services:
     # ここだけがホストへの入口。
     ports:
       - "${NLOPS_PORT:-8081}:80"
+      - "${NLOPS_TLS_PORT:-8443}:443"
+    volumes:
+      # 証明書があれば HTTPS が有効になる。無ければ HTTP のみ。
+      - ./certs:/etc/nginx/certs:ro
     depends_on:
       - bff
 

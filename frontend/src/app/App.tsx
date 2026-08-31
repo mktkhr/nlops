@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react'
 import AppBar from '@mui/material/AppBar'
 import Box from '@mui/material/Box'
 import Container from '@mui/material/Container'
@@ -6,17 +7,29 @@ import MenuItem from '@mui/material/MenuItem'
 import Tab from '@mui/material/Tab'
 import Tabs from '@mui/material/Tabs'
 import TextField from '@mui/material/TextField'
+import LinearProgress from '@mui/material/LinearProgress'
 import Toolbar from '@mui/material/Toolbar'
 import Typography from '@mui/material/Typography'
 import { ThemeProvider } from '@mui/material/styles'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router'
-import { AssistantPage } from '../features/assistant/AssistantPage'
-import { CustomerPage } from '../features/customer/CustomerPage'
-import { AuditPage } from '../features/audit/AuditPage'
-import { OrderPage } from '../features/order/OrderPage'
 import { UserProvider } from '../shared/user/UserProvider'
 import { useUser } from '../shared/user/user-context'
 import { theme } from './theme'
+
+// 画面ごとに分割して読み込む。最初に開くのはアシスタントなので、
+// 注文・顧客・監査のコードを初回のバンドルへ入れる必要がない。
+const AssistantPage = lazy(() =>
+  import('../features/assistant/AssistantPage').then((m) => ({ default: m.AssistantPage })),
+)
+const OrderPage = lazy(() =>
+  import('../features/order/OrderPage').then((m) => ({ default: m.OrderPage })),
+)
+const CustomerPage = lazy(() =>
+  import('../features/customer/CustomerPage').then((m) => ({ default: m.CustomerPage })),
+)
+const AuditPage = lazy(() =>
+  import('../features/audit/AuditPage').then((m) => ({ default: m.AuditPage })),
+)
 
 const NAV = [
   { to: '/assistant', label: 'アシスタント' },
@@ -57,14 +70,16 @@ function Shell() {
       </AppBar>
 
       <Container maxWidth="lg" sx={{ py: 3 }}>
-        <Routes>
-          <Route path="/" element={<Navigate to="/assistant" replace />} />
-          <Route path="/assistant" element={<AssistantPage />} />
-          <Route path="/orders" element={<OrderPage />} />
-          <Route path="/customers" element={<CustomerPage />} />
-          <Route path="/audit" element={<AuditPage />} />
-          <Route path="*" element={<Navigate to="/assistant" replace />} />
-        </Routes>
+        <Suspense fallback={<LinearProgress />}>
+          <Routes>
+            <Route path="/" element={<Navigate to="/assistant" replace />} />
+            <Route path="/assistant" element={<AssistantPage />} />
+            <Route path="/orders" element={<OrderPage />} />
+            <Route path="/customers" element={<CustomerPage />} />
+            <Route path="/audit" element={<AuditPage />} />
+            <Route path="*" element={<Navigate to="/assistant" replace />} />
+          </Routes>
+        </Suspense>
       </Container>
     </Box>
   )

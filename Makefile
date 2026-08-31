@@ -1,7 +1,7 @@
 DSN ?= postgres://nlops:nlops@127.0.0.1:5432/nlops?sslmode=disable
 export NLOPS_DSN = $(DSN)
 
-.PHONY: build db services stop bff web test fmt up down logs ps
+.PHONY: build db services stop bff web test fmt env cert up down reset logs ps
 build:
 	cd pkg && go build ./...
 	cd services && go build -o ../bin/ ./cmd/...
@@ -44,7 +44,26 @@ fmt:
 
 COMPOSE = docker compose -f deploy/compose.yaml
 
-up:
+# 秘密情報は .env に置き、リポジトリには入れない。
+env:
+	@if [ -f deploy/.env ]; then echo "deploy/.env は既にあります"; else \
+		sed "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$$(head -c 24 /dev/urandom | base64 | tr -d '/+=' )|" \
+			deploy/.env.example > deploy/.env; \
+		chmod 600 deploy/.env; \
+		echo "deploy/.env を作成しました (パスワードは乱数)"; fi
+
+# 自己署名証明書。tailnet で使うなら tailscale cert の方が正しい (下記参照)。
+cert:
+	@mkdir -p deploy/certs
+	@if [ -s deploy/certs/fullchain.pem ]; then echo "証明書は既にあります"; else \
+		openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
+			-keyout deploy/certs/privkey.pem -out deploy/certs/fullchain.pem \
+			-subj "/CN=$${NLOPS_HOST:-localhost}" \
+			-addext "subjectAltName=DNS:$${NLOPS_HOST:-localhost},DNS:localhost,IP:127.0.0.1" \
+			2>/dev/null && chmod 600 deploy/certs/privkey.pem && \
+		echo "自己署名証明書を作成しました (CN=$${NLOPS_HOST:-localhost})"; fi
+
+up: env
 	$(COMPOSE) up -d --build
 	@echo "起動: http://localhost:$${NLOPS_PORT:-8081}/"
 

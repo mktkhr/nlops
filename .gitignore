@@ -38,6 +38,9 @@
 !deploy/Dockerfile*
 !deploy/*.yaml
 !deploy/*.conf
+!deploy/*.disabled
+!deploy/.env.example
+!deploy/docker-entrypoint.d/*.sh
 !.dockerignore
 
 # --- 上の許可より後に書いて、明示的に除外し続けるもの ---
@@ -51,3 +54,6 @@ docs/spike-raw/
 catalog/scale/
 # プロセス管理
 .run/
+# 秘密情報。.env.example だけを追跡する。
+deploy/.env
+deploy/certs/
