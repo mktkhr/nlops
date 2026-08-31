@@ -1,0 +1,168 @@
+// BFF との通信をここに閉じる。Feature からは fetch を直接呼ばない。
+
+export type User = {
+  userId: string
+  name: string
+  role: string
+  region?: string
+}
+
+export type Step = {
+  iteration: number
+  tool?: string
+  arguments?: Record<string, unknown>
+  finish?: boolean
+  forced?: boolean
+  status?: number
+  denied?: boolean
+  error?: string
+  result?: unknown
+  llmMs: number
+}
+
+export type Done = {
+  totalMs: number
+  promptTok: number
+  cachedTok: number
+  compTok: number
+  rawBytes: number
+  projBytes: number
+  denied: boolean
+  incomplete: boolean
+  toolsUsed: string[]
+}
+
+export type Order = {
+  orderId: string
+  customerId: string
+  customerName: string
+  status: string
+  orderedAt: string
+  totalAmount: number
+}
+
+export type Customer = {
+  customerId: string
+  name: string
+  region: string
+  status: string
+}
+
+const USER_HEADER = 'X-Nlops-User-Id'
+
+async function get<T>(path: string, userId: string): Promise<T> {
+  const res = await fetch(path, { headers: { [USER_HEADER]: userId } })
+  const body = (await res.json()) as T & { error?: string }
+  if (!res.ok) {
+    throw new Error(body.error ?? `リクエストに失敗しました (${res.status})`)
+  }
+  return body
+}
+
+export function fetchUsers(): Promise<{ items: User[] }> {
+  return fetch('/api/users').then((r) => r.json() as Promise<{ items: User[] }>)
+}
+
+export function fetchOrders(
+  userId: string,
+  params: Record<string, string>,
+): Promise<{ items: Order[]; count: number }> {
+  const q = new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v !== ''),
+  )
+  return get(`/api/orders?${q.toString()}`, userId)
+}
+
+export function fetchCustomers(
+  userId: string,
+  params: Record<string, string>,
+): Promise<{ items: Customer[]; count: number }> {
+  const q = new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v !== ''),
+  )
+  return get(`/api/customers?${q.toString()}`, userId)
+}
+
+export type AskHandlers = {
+  onStep: (step: Step) => void
+  onAnswer: (answer: string) => void
+  onDone: (done: Done) => void
+  onError: (message: string) => void
+}
+
+/**
+ * Tool Loop の進捗を SSE で受け取る。
+ *
+ * EventSource は POST できないので fetch のストリームを自前で解析する。
+ * Loop は 1 要求あたり数秒かかるため、完了を待たずステップ単位で描画する。
+ */
+export async function streamAsk(
+  query: string,
+  userId: string,
+  handlers: AskHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch('/api/ask', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', [USER_HEADER]: userId },
+    body: JSON.stringify({ query }),
+    signal,
+  })
+  if (!res.ok || !res.body) {
+    const text = await res.text().catch(() => '')
+    handlers.onError(text || `問い合わせに失敗しました (${res.status})`)
+    return
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    // SSE はイベントを空行で区切る。
+    let sep = buffer.indexOf('\n\n')
+    while (sep !== -1) {
+      dispatch(buffer.slice(0, sep), handlers)
+      buffer = buffer.slice(sep + 2)
+      sep = buffer.indexOf('\n\n')
+    }
+  }
+}
+
+function dispatch(block: string, handlers: AskHandlers): void {
+  let event = 'message'
+  const dataLines: string[] = []
+  for (const line of block.split('\n')) {
+    if (line.startsWith('event: ')) event = line.slice(7)
+    else if (line.startsWith('data: ')) dataLines.push(line.slice(6))
+  }
+  if (dataLines.length === 0) return
+
+  let payload: unknown
+  try {
+    payload = JSON.parse(dataLines.join('\n'))
+  } catch {
+    return
+  }
+
+  switch (event) {
+    case 'step':
+      handlers.onStep(payload as Step)
+      break
+    case 'answer':
+      handlers.onAnswer((payload as { answer: string }).answer)
+      break
+    case 'done':
+      handlers.onDone(payload as Done)
+      break
+    case 'error':
+      handlers.onError((payload as { message: string }).message)
+      break
+    default:
+      break
+  }
+}
