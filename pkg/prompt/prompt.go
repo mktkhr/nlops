@@ -376,30 +376,34 @@ func IntentSystem(routes *uiroute.Catalog) string {
 		b.WriteString("\n")
 	}
 	b.WriteString("# 判定\n")
-	b.WriteString("- navigate: 上の画面のどれかと、そのフィルタだけで要求を完全に表現できる。\n")
+	b.WriteString("- \"n\" (navigate): 上の画面のどれかと、そのフィルタだけで要求を完全に表現できる。\n")
 	b.WriteString("  氏名での絞り込みはフィルタで直接できるので、IDへの変換は不要です。\n")
-	b.WriteString("- tool: それ以外。対応する画面が無い、必要な絞り込みがフィルタに無い、\n")
+	b.WriteString("- \"t\" (tool): それ以外。対応する画面が無い、必要な絞り込みがフィルタに無い、\n")
 	b.WriteString("  または件数・金額・状態など特定の値を答える必要がある。\n\n")
 	b.WriteString("# 例\n")
-	b.WriteString("- 「西日本の顧客の一覧を開いて」→ navigate\n")
-	b.WriteString("- 「田中さんの注文を画面で見せて」→ navigate (customer_name で絞れる)\n")
-	b.WriteString("- 「高橋みどりさんの注文一覧を開いて」→ navigate\n")
-	b.WriteString("- 「担当している顧客の一覧を開いて」→ navigate (フィルタなしで開く)\n")
-	b.WriteString("- 「利用停止の顧客はいますか」→ tool (取引状態のフィルタが無い)\n")
-	b.WriteString("- 「使える配送業者を教えて」→ tool (配送業者の画面が無い)\n")
-	b.WriteString("- 「田中さんの未払い残高はいくら」→ tool (特定の値を答える)\n\n")
-	b.WriteString("JSON のみを出力します。\n")
+	b.WriteString("- 「西日本の顧客の一覧を開いて」→ n\n")
+	b.WriteString("- 「田中さんの注文を画面で見せて」→ n (customer_name で絞れる)\n")
+	b.WriteString("- 「高橋みどりさんの注文一覧を開いて」→ n\n")
+	b.WriteString("- 「担当している顧客の一覧を開いて」→ n (フィルタなしで開く)\n")
+	b.WriteString("- 「利用停止の顧客はいますか」→ t (取引状態のフィルタが無い)\n")
+	b.WriteString("- 「使える配送業者を教えて」→ t (配送業者の画面が無い)\n")
+	b.WriteString("- 「田中さんの未払い残高はいくら」→ t (特定の値を答える)\n\n")
+	b.WriteString("{\"m\":\"n\"} または {\"m\":\"t\"} だけを出力します。\n")
 	return b.String()
 }
 
 // IntentSchema はモード判定の出力スキーマを返す。
+//
+// キー名と値を最短にしてある。制約デコードでは 1 トークンあたりのコストが
+// 非制約時の約 2.5 倍になり、この判定は 1 要求ごとに必ず走るため、
+// 出力トークン数がそのままレイテンシに乗る。
 func IntentSchema() *llm.JSONSchema {
 	return &llm.JSONSchema{Name: "intent", Strict: true, Schema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"mode": map[string]any{"type": "string", "enum": []string{"navigate", "tool"}},
+			"m": map[string]any{"type": "string", "enum": []string{"n", "t"}},
 		},
-		"required":             []string{"mode"},
+		"required":             []string{"m"},
 		"additionalProperties": false,
 	}}
 }

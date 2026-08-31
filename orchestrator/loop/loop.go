@@ -435,7 +435,7 @@ func barrenResult(res executor.Result) bool {
 // classifyIntent は「画面を開くだけで済むか」を 2 択で判定する。
 func (r *Runner) classifyIntent(ctx context.Context, query string, opt Options) (string, *llm.Response, error) {
 	resp, err := r.LLM.Chat(ctx, llm.Request{
-		Model: opt.Model, Temperature: 0, MaxTokens: 64,
+		Model: opt.Model, Temperature: 0, MaxTokens: 16,
 		Messages: []llm.Message{
 			{Role: "system", Content: prompt.IntentSystem(r.Routes)},
 			{Role: "user", Content: query},
@@ -446,12 +446,15 @@ func (r *Runner) classifyIntent(ctx context.Context, query string, opt Options) 
 		return "", resp, err
 	}
 	var out struct {
-		Mode string `json:"mode"`
+		M string `json:"m"`
 	}
 	if err := json.Unmarshal([]byte(resp.Text()), &out); err != nil {
 		return "", resp, err
 	}
-	return out.Mode, resp, nil
+	if out.M == "n" {
+		return "navigate", resp, nil
+	}
+	return "tool", resp, nil
 }
 
 func (r *Runner) resolveNavigation(route string, filters map[string]string, reason string) (*Navigation, string) {
