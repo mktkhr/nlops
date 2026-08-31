@@ -114,8 +114,12 @@ async function get<T>(path: string, userId: string): Promise<T> {
   return body
 }
 
-export function fetchUsers(): Promise<{ items: User[] }> {
-  return fetch('/api/users').then((r) => r.json() as Promise<{ items: User[] }>)
+export async function fetchUsers(): Promise<{ items: User[] }> {
+  const res = await fetch('/api/users')
+  if (!res.ok) {
+    throw new Error(`/api/users が ${res.status} を返しました`)
+  }
+  return (await res.json()) as { items: User[] }
 }
 
 export function fetchOrders(

@@ -37,10 +37,11 @@ export default defineConfig({
     host: true,
     // MagicDNS 名 (*.ts.net) で開いても Vite にブロックされないようにする。
     allowedHosts: ['.ts.net'],
-    // /api は BFF へ回す。本番では Nginx が同じ役割を担う。
+    // /api の転送先。既定は compose の Nginx (make up で立つ)。
+    // 開発用 BFF を直接叩くなら NLOPS_API=http://127.0.0.1:8080 を指定する。
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8080',
+        target: process.env.NLOPS_API ?? 'http://127.0.0.1:8081',
         changeOrigin: true,
       },
     },

@@ -22,7 +22,7 @@ import { useUser } from '../../shared/user/user-context'
 const STATUSES = ['PLACED', 'CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED']
 
 export function OrderPage() {
-  const { current } = useUser()
+  const { current, error: userError } = useUser()
   // フィルタは URL に置く。LLM が返した画面の状態をそのまま反映でき、
   // URL を共有すれば同じ絞り込みを再現できる。
   const [params, setParams] = useSearchParams()
@@ -92,9 +92,9 @@ export function OrderPage() {
         </Stack>
       </Paper>
 
-      {error && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          {error}
+      {(userError || error) && (
+        <Alert severity={userError ? 'error' : 'warning'} sx={{ mb: 2 }}>
+          {userError || error}
         </Alert>
       )}
 

@@ -38,7 +38,7 @@ function toPath(nav: Navigation): string {
 }
 
 export function AssistantPage() {
-  const { current } = useUser()
+  const { current, error: userError, loading: userLoading } = useUser()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [steps, setSteps] = useState<Step[]>([])
@@ -97,6 +97,12 @@ export function AssistantPage() {
         description="自然言語で問い合わせると、必要な業務 API を選んで実行し、結果をまとめて答えます。参照できる範囲は右上のユーザーの権限に従います。"
       />
 
+      {userError && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {userError}
+        </Alert>
+      )}
+
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
         <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
           <TextField
@@ -112,13 +118,15 @@ export function AssistantPage() {
                 void ask(query)
               }
             }}
-            disabled={running}
+            disabled={running || !current}
           />
           <Button
             variant="contained"
             startIcon={running ? <CircularProgress size={16} /> : <SendIcon />}
             onClick={() => void ask(query)}
-            disabled={running || !query.trim()}
+            // 実行ユーザーが決まっていないと権限を伴う問い合わせができない。
+            // 押しても無反応になるより、押せないことを見せる。
+            disabled={running || !query.trim() || !current || userLoading}
             sx={{ minWidth: 104, height: 40 }}
           >
             送信
@@ -135,7 +143,7 @@ export function AssistantPage() {
                 setQuery(ex)
                 void ask(ex)
               }}
-              disabled={running}
+              disabled={running || !current}
             />
           ))}
         </Stack>

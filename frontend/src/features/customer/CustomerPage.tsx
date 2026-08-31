@@ -21,7 +21,7 @@ import { PageHeader } from '../../shared/ui/PageHeader'
 import { useUser } from '../../shared/user/user-context'
 
 export function CustomerPage() {
-  const { current } = useUser()
+  const { current, error: userError } = useUser()
   // フィルタは URL に置く (OrderPage と同じ理由)。
   const [params, setParams] = useSearchParams()
   const name = params.get('name') ?? ''
@@ -74,9 +74,9 @@ export function CustomerPage() {
         </Stack>
       </Paper>
 
-      {error && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          {error}
+      {(userError || error) && (
+        <Alert severity={userError ? 'error' : 'warning'} sx={{ mb: 2 }}>
+          {userError || error}
         </Alert>
       )}
 
