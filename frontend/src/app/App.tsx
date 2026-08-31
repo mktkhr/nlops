@@ -12,6 +12,7 @@ import { ThemeProvider } from '@mui/material/styles'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router'
 import { AssistantPage } from '../features/assistant/AssistantPage'
 import { CustomerPage } from '../features/customer/CustomerPage'
+import { AuditPage } from '../features/audit/AuditPage'
 import { OrderPage } from '../features/order/OrderPage'
 import { UserProvider } from '../shared/user/UserProvider'
 import { useUser } from '../shared/user/user-context'
@@ -21,6 +22,7 @@ const NAV = [
   { to: '/assistant', label: 'アシスタント' },
   { to: '/orders', label: '注文' },
   { to: '/customers', label: '顧客' },
+  { to: '/audit', label: '監査ログ' },
 ]
 
 export default function App() {
@@ -60,6 +62,7 @@ function Shell() {
           <Route path="/assistant" element={<AssistantPage />} />
           <Route path="/orders" element={<OrderPage />} />
           <Route path="/customers" element={<CustomerPage />} />
+          <Route path="/audit" element={<AuditPage />} />
           <Route path="*" element={<Navigate to="/assistant" replace />} />
         </Routes>
       </Container>

@@ -36,6 +36,13 @@ export type Step = {
   llmMs: number
 }
 
+export type Start = {
+  query: string
+  user: string
+  model: string
+  traceId: string
+}
+
 export type Done = {
   totalMs: number
   promptTok: number
@@ -64,6 +71,36 @@ export type Customer = {
   name: string
   region: string
   status: string
+}
+
+export type AuditExecution = {
+  execution_id: string
+  created_at: string
+  trace_id: string | null
+  user_id: string
+  role: string
+  command: string
+  arguments: Record<string, unknown>
+  status_code: number
+  ok: boolean
+  error: string | null
+}
+
+export type AuditTrace = {
+  trace_id: string
+  created_at: string
+  user_id: string
+  role: string
+  query: string
+  outcome: string
+  intent: string | null
+  denied: boolean
+  incomplete: boolean
+  error: string | null
+  step_count: number
+  total_ms: number
+  prompt_tok: number
+  cached_tok: number
 }
 
 const USER_HEADER = 'X-Nlops-User-Id'
@@ -112,11 +149,13 @@ export async function executeCommand(
   userId: string,
   command: string,
   args: Record<string, unknown>,
+  traceId?: string,
 ): Promise<void> {
   const res = await fetch('/api/commands/execute', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', [USER_HEADER]: userId },
-    body: JSON.stringify({ command, arguments: args }),
+    // traceId を送ることで、どの会話に対する承認だったかが監査に残る。
+    body: JSON.stringify({ command, arguments: args, traceId }),
   })
   const body = (await res.json()) as { error?: string }
   if (!res.ok) {
@@ -124,7 +163,20 @@ export async function executeCommand(
   }
 }
 
+export function fetchAuditExecutions(
+  userId: string,
+): Promise<{ items: AuditExecution[]; count: number }> {
+  return get('/api/audit/executions?limit=100', userId)
+}
+
+export function fetchAuditTraces(
+  userId: string,
+): Promise<{ items: AuditTrace[]; count: number }> {
+  return get('/api/audit/traces?limit=100', userId)
+}
+
 export type AskHandlers = {
+  onStart: (start: Start) => void
   onStep: (step: Step) => void
   onNavigate: (nav: Navigation) => void
   onProposal: (p: Proposal) => void
@@ -193,6 +245,9 @@ function dispatch(block: string, handlers: AskHandlers): void {
   }
 
   switch (event) {
+    case 'start':
+      handlers.onStart(payload as Start)
+      break
     case 'step':
       handlers.onStep(payload as Step)
       break

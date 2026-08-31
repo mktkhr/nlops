@@ -51,9 +51,10 @@ orchestrator/     Orchestrator
   cmd/orchctl/      CLI
 services/         モックマイクロサービス (5 サービス / 24 API)
 bff/              Backend For Frontend (Presentation / Orchestration のみ)
+  internal/audit/   トレースと更新承認の永続化 (audit schema を所有)
 frontend/         React + MUI (pnpm + Vite+)
   src/app/          シェルとルーティング
-  src/features/     assistant / order / customer
+  src/features/     assistant / order / customer / audit
   src/shared/       api / ui / user
 eval/             評価ハーネス
   golden/cases.json ゴールデンセット (170 ケース / 8 カテゴリ)
@@ -124,6 +125,7 @@ Web UI は `http://localhost:5173/`。右上のユーザー切り替えで権限
 | `-intent-gate` | `true` | Loop の前に navigate / tool を 2 択で判定する |
 | `-catalog` | `catalog/services.json` | 使用するカタログ (スケール検証で差し替える) |
 | `-json` | `false` | 実行トレースを JSON で出す |
+| `-audit-dsn` | 空 | BFF の監査 DB。空なら `NLOPS_DSN`、それも無ければ記録しない |
 
 ## ユーザーと権限
 

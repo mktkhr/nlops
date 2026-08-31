@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mktkhr/nlops/bff/internal/audit"
 	"github.com/mktkhr/nlops/bff/internal/server"
 	"github.com/mktkhr/nlops/orchestrator/loop"
 	"github.com/mktkhr/nlops/pkg/authctx"
@@ -23,16 +24,17 @@ import (
 
 func main() {
 	var (
-		addr    = flag.String("addr", ":8080", "listen address")
-		base    = flag.String("base", "http://127.0.0.1:11435", "OpenAI 互換サーバ")
-		model   = flag.String("model", "gemma4-12b", "モデル ID")
-		mode    = flag.String("mode", "one_stage", "one_stage / two_stage")
-		reason  = flag.String("reasoning", "none", "reasoning_effort")
-		catPath = flag.String("catalog", "catalog/services.json", "カタログ")
-		rolPath = flag.String("roles", "catalog/roles.json", "ロール定義")
-		cmdPath = flag.String("commands", "catalog/commands.json", "更新操作の定義。空文字で無効化")
-		rtPath  = flag.String("routes", "catalog/routes.json", "画面定義。空文字で画面遷移を無効化")
-		steps   = flag.Int("max-steps", 6, "Tool Loop の最大反復数")
+		addr     = flag.String("addr", ":8080", "listen address")
+		base     = flag.String("base", "http://127.0.0.1:11435", "OpenAI 互換サーバ")
+		model    = flag.String("model", "gemma4-12b", "モデル ID")
+		mode     = flag.String("mode", "one_stage", "one_stage / two_stage")
+		reason   = flag.String("reasoning", "none", "reasoning_effort")
+		catPath  = flag.String("catalog", "catalog/services.json", "カタログ")
+		rolPath  = flag.String("roles", "catalog/roles.json", "ロール定義")
+		cmdPath  = flag.String("commands", "catalog/commands.json", "更新操作の定義。空文字で無効化")
+		rtPath   = flag.String("routes", "catalog/routes.json", "画面定義。空文字で画面遷移を無効化")
+		steps    = flag.Int("max-steps", 6, "Tool Loop の最大反復数")
+		auditDSN = flag.String("audit-dsn", "", "監査 DB の接続文字列。空なら NLOPS_DSN、それも無ければ記録しない")
 	)
 	flag.Parse()
 
@@ -65,6 +67,20 @@ func main() {
 	}
 	srv := server.New(runner, dir, cat)
 	srv.Commands = cmds
+
+	dsn := *auditDSN
+	if dsn == "" {
+		dsn = os.Getenv("NLOPS_DSN")
+	}
+	rec, err := audit.New(context.Background(), dsn, srv.Log)
+	if err != nil {
+		die(err)
+	}
+	defer rec.Close()
+	srv.Audit = rec
+	if !rec.Enabled() {
+		srv.Log.Warn("監査記録が無効です。更新の承認記録もトレースも残りません")
+	}
 	srv.Model = *model
 	srv.Mode = loop.Mode(*mode)
 	srv.MaxSteps = *steps

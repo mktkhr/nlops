@@ -12,6 +12,7 @@ build:
 db:
 	docker exec -i -e PGPASSWORD=nlops nlops-db psql -U nlops -d nlops -v ON_ERROR_STOP=1 -q < services/schema/001_schema.sql
 	docker exec -i -e PGPASSWORD=nlops nlops-db psql -U nlops -d nlops -v ON_ERROR_STOP=1 -q < services/schema/002_seed.sql
+	docker exec -i -e PGPASSWORD=nlops nlops-db psql -U nlops -d nlops -v ON_ERROR_STOP=1 -q < services/schema/003_audit.sql
 
 services: build
 	@mkdir -p .run
@@ -21,7 +22,7 @@ services: build
 
 bff: build
 	@mkdir -p .run
-	@./bin/bff > .run/bff.log 2>&1 & echo $$! > .run/bff.pid
+	@NLOPS_DSN="$(DSN)" ./bin/bff > .run/bff.log 2>&1 & echo $$! > .run/bff.pid
 	@sleep 1; echo "BFF 起動: :8080"
 
 web:

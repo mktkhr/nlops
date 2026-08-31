@@ -24,6 +24,7 @@ import (
 
 	"bytes"
 
+	"github.com/mktkhr/nlops/bff/internal/audit"
 	"github.com/mktkhr/nlops/orchestrator/loop"
 	"github.com/mktkhr/nlops/pkg/authctx"
 	"github.com/mktkhr/nlops/pkg/command"
@@ -42,6 +43,9 @@ type Server struct {
 	// LLM の経路 (Executor) はこの定義を持たない。
 	Commands *command.Catalog
 
+	// Audit はトレースと更新操作の記録先。無効なら記録しない。
+	Audit *audit.Recorder
+
 	Model    string
 	Mode     loop.Mode
 	MaxSteps int
@@ -58,6 +62,7 @@ func New(runner *loop.Runner, dir *authctx.Directory, cat *toolschema.Catalog) *
 		Model:    "gemma4-12b",
 		Mode:     loop.ModeOneStage,
 		MaxSteps: 6,
+		Audit:    &audit.Recorder{},
 		mux:      http.NewServeMux(),
 	}
 	s.routes()
@@ -73,6 +78,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/orders", s.handleOrders)
 	s.mux.HandleFunc("GET /api/customers", s.handleCustomers)
 	s.mux.HandleFunc("POST /api/commands/execute", s.handleExecute)
+	s.mux.HandleFunc("GET /api/audit/traces", s.handleAuditTraces)
+	s.mux.HandleFunc("GET /api/audit/traces/{trace_id}", s.handleAuditTrace)
+	s.mux.HandleFunc("GET /api/audit/executions", s.handleAuditExecutions)
 	s.mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
@@ -144,7 +152,10 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, b)
 		flusher.Flush()
 	}
-	send("start", map[string]any{"query": req.Query, "user": id.UserID, "model": s.Model})
+	traceID := audit.NewTraceID()
+	send("start", map[string]any{
+		"query": req.Query, "user": id.UserID, "model": s.Model, "traceId": traceID,
+	})
 
 	// Tool Loop は 1 要求あたり数秒かかる。何も返さないと壊れて見えるので、
 	// ステップ完了ごとに逐次流す。OnStep は Run と同じ goroutine から呼ばれる。
@@ -182,7 +193,8 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 		"navigated":  tr.Navigate != nil,
 		"proposed":   tr.Proposal != nil,
 	})
-	s.Log.Info("ask", "user", id.UserID, "steps", len(tr.Steps), "ms", int(tr.TotalMS))
+	s.Audit.RecordTrace(r.Context(), traceID, id, tr)
+	s.Log.Info("ask", "user", id.UserID, "steps", len(tr.Steps), "ms", int(tr.TotalMS), "trace", traceID)
 }
 
 type stepDTO struct {
@@ -219,6 +231,7 @@ func toStepDTO(st loop.Step) stepDTO {
 type executeRequest struct {
 	Command   string         `json:"command"`
 	Arguments map[string]any `json:"arguments"`
+	TraceID   string         `json:"traceId"`
 }
 
 // handleExecute は人間が確認した更新操作を実行する。
@@ -241,18 +254,27 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "リクエストを解釈できません")
 		return
 	}
+	// 拒否された試行も記録する。何をやろうとしたかが監査の本体。
+	reject := func(code int, msg string) {
+		s.Audit.RecordExecution(r.Context(), audit.Execution{
+			TraceID: req.TraceID, Identity: id, Command: req.Command,
+			Arguments: req.Arguments, StatusCode: code, Error: msg,
+		})
+		writeErr(w, code, msg)
+	}
+
 	cmd, ok := s.Commands.ByName(req.Command)
 	if !ok {
-		writeErr(w, http.StatusBadRequest, fmt.Sprintf("操作 %q は存在しません", req.Command))
+		reject(http.StatusBadRequest, fmt.Sprintf("操作 %q は存在しません", req.Command))
 		return
 	}
 	args, err := cmd.Validate(req.Arguments)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		reject(http.StatusBadRequest, err.Error())
 		return
 	}
 	if !id.CanWrite(cmd.Service) {
-		writeErr(w, http.StatusForbidden,
+		reject(http.StatusForbidden,
 			fmt.Sprintf("ロール %s は %s を更新できません", id.Role, cmd.Service))
 		return
 	}
@@ -273,7 +295,7 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 		body[k] = v
 	}
 	if strings.Contains(path, "{") {
-		writeErr(w, http.StatusBadRequest, "必須のパスパラメータが不足しています")
+		reject(http.StatusBadRequest, "必須のパスパラメータが不足しています")
 		return
 	}
 	payload, _ := json.Marshal(body)
@@ -288,7 +310,7 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := s.HTTP.Do(req2)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, fmt.Sprintf("%s サービスへ接続できません", cmd.Service))
+		reject(http.StatusBadGateway, fmt.Sprintf("%s サービスへ接続できません", cmd.Service))
 		return
 	}
 	defer resp.Body.Close()
@@ -306,9 +328,19 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 		if msg == "" {
 			msg = fmt.Sprintf("%s サービスが %d を返しました", cmd.Service, resp.StatusCode)
 		}
+		s.Audit.RecordExecution(r.Context(), audit.Execution{
+			TraceID: req.TraceID, Identity: id, Command: cmd.Name,
+			Arguments: args, StatusCode: resp.StatusCode, Error: msg,
+		})
 		writeErr(w, resp.StatusCode, msg)
 		return
 	}
+	var after any
+	_ = json.Unmarshal(raw, &after)
+	s.Audit.RecordExecution(r.Context(), audit.Execution{
+		TraceID: req.TraceID, Identity: id, Command: cmd.Name,
+		Arguments: args, StatusCode: http.StatusOK, Result: after,
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "command": cmd.Name})
 }
 

@@ -45,6 +45,7 @@ export function AssistantPage() {
   const [answer, setAnswer] = useState('')
   const [done, setDone] = useState<Done | null>(null)
   const [proposal, setProposal] = useState<Proposal | null>(null)
+  const [traceId, setTraceId] = useState('')
   const [error, setError] = useState('')
   const [running, setRunning] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
@@ -66,6 +67,7 @@ export function AssistantPage() {
           q,
           current.userId,
           {
+            onStart: (st) => setTraceId(st.traceId),
             onStep: (s) => setSteps((prev) => [...prev, s]),
             // 画面を開くのが答えなので、そのまま遷移する。
             onNavigate: (nav) => navigate(toPath(nav)),
@@ -169,6 +171,7 @@ export function AssistantPage() {
       {proposal && (
         <ProposalCard
           proposal={proposal}
+          traceId={traceId}
           onDone={() => setProposal(null)}
         />
       )}
@@ -192,9 +195,11 @@ export function AssistantPage() {
 /** 更新操作の確認。ここで人間が承認して初めて実行される。 */
 function ProposalCard({
   proposal,
+  traceId,
   onDone,
 }: {
   proposal: Proposal
+  traceId: string
   onDone: () => void
 }) {
   const { current } = useUser()
@@ -206,7 +211,7 @@ function ProposalCard({
     setRunning(true)
     setResult(null)
     try {
-      await executeCommand(current.userId, proposal.command, proposal.arguments)
+      await executeCommand(current.userId, proposal.command, proposal.arguments, traceId)
       setResult({ ok: true, message: '実行しました。' })
     } catch (e) {
       setResult({ ok: false, message: e instanceof Error ? e.message : String(e) })
