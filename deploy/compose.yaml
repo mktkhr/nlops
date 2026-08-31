@@ -6,6 +6,11 @@ name: nlops
 #
 # ホストへ公開するのは Nginx だけ。DB も BFF も各サービスも内部ネットワークに閉じる。
 # LLM はホスト側の llama-swap をそのまま使う (VRAM を二重に消費しないため)。
+#
+# 秘密情報は環境変数に置かない。docker inspect や /proc/<pid>/environ から読め、
+# 子プロセスへも自動的に引き継がれるため。Docker secrets としてファイルで渡し、
+# コンテナ内では /run/secrets 以下 (tmpfs) にマウントされる。
+# 生成は make secrets (deploy/secrets/ は追跡しない)。
 
 x-service: &service
   build:
@@ -13,7 +18,9 @@ x-service: &service
     dockerfile: deploy/Dockerfile.go
   restart: unless-stopped
   environment:
-    NLOPS_DSN: postgres://nlops:${POSTGRES_PASSWORD:?deploy/.env が必要です。make env で作成してください}@db:5432/nlops?sslmode=disable
+    NLOPS_DSN_FILE: /run/secrets/db_dsn
+  secrets:
+    - db_dsn
   depends_on:
     db:
       condition: service_healthy
@@ -25,7 +32,9 @@ services:
     environment:
       POSTGRES_DB: nlops
       POSTGRES_USER: nlops
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?deploy/.env が必要です。make env で作成してください}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
     volumes:
       # Postgres 18 以降は /var/lib/postgresql にマウントする
       # (data 直下に置くと起動時に unused mount として弾かれる)。
@@ -59,13 +68,15 @@ services:
     command: ["bff", "-addr", ":8080", "-base", "${NLOPS_LLM_BASE:-http://host.docker.internal:11435}"]
     environment:
       # 監査の記録先。業務データと同じ DB の audit schema。
-      NLOPS_DSN: postgres://nlops:${POSTGRES_PASSWORD:?}@db:5432/nlops?sslmode=disable
+      NLOPS_DSN_FILE: /run/secrets/db_dsn
       # カタログの base_url を compose 内のホスト名で上書きする。
       NLOPS_BASE_CUSTOMER: http://customer:9101
       NLOPS_BASE_ORDER: http://order:9102
       NLOPS_BASE_INVENTORY: http://inventory:9103
       NLOPS_BASE_SHIPPING: http://shipping:9104
       NLOPS_BASE_BILLING: http://billing:9105
+    secrets:
+      - db_dsn
     extra_hosts:
       # ホストで動いている llama-swap (:11435) へ出るため。
       - "host.docker.internal:host-gateway"
@@ -100,3 +111,11 @@ services:
 
 volumes:
   db-data:
+
+secrets:
+  # postgres は POSTGRES_PASSWORD_FILE、Go 側は NLOPS_DSN_FILE として読む。
+  # 同じパスワードから make secrets が両方を生成するのでずれない。
+  db_password:
+    file: ./secrets/db_password
+  db_dsn:
+    file: ./secrets/db_dsn

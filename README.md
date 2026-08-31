@@ -81,10 +81,14 @@ LLM はホストの llama-swap (`:11435`) をそのまま使う (VRAM を二重�
 
 ポートを変えるなら `NLOPS_PORT=9000 make up`。
 
-`make up` は `deploy/.env` が無ければ乱数パスワードで作る。このファイルは追跡しない。
-**`POSTGRES_PASSWORD` を後から変えた場合は `make reset` が必要。**
+`make up` は `deploy/secrets/` が無ければ乱数パスワードで作る。秘密情報は
+**Docker secrets としてファイルで渡し、環境変数には置かない**
+(環境変数は `docker inspect` や `/proc/<pid>/environ` から読めるため)。
+`deploy/secrets/` は追跡しない。
+
+**パスワードを後から変えた場合は `make reset` が必要。**
 PostgreSQL はパスワードを初回起動時にしか適用しないので、ボリュームが残っていると
-古いパスワードのままになり、BFF が起動時に落ちる。
+古いパスワードのままになり、各サービスが起動時に落ちる。
 
 ### HTTPS
 
@@ -109,7 +113,15 @@ make up
 ## 前提
 
 - Go 1.26 以上
-- Docker で PostgreSQL 18 (`nlops-db` コンテナ、ユーザー `nlops`)
+- ローカル開発で使う PostgreSQL 18。既存のコンテナを使う場合は `local.mk` (追跡しない) で上書きする
+
+  ```make
+  PG_CONTAINER = my-postgres
+  PG_USER      = myuser
+  PG_PASSWORD  = mypassword
+  ```
+
+  コンテナ構成 (`make up`) では専用の DB が立つのでこの設定は不要
 - llama.cpp / llama-swap が OpenAI 互換で `:11435` を提供していること
 - コンテナで動かす場合は Docker と compose v2 以上
 - 既定モデルは `gemma4-12b` (Gemma 4 12B QAT q4_0)。選定根拠は [docs/scale-report.md](docs/scale-report.md)

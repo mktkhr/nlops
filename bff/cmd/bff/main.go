@@ -17,6 +17,7 @@ import (
 	"github.com/mktkhr/nlops/orchestrator/loop"
 	"github.com/mktkhr/nlops/pkg/authctx"
 	"github.com/mktkhr/nlops/pkg/command"
+	"github.com/mktkhr/nlops/pkg/dbconf"
 	"github.com/mktkhr/nlops/pkg/llm"
 	"github.com/mktkhr/nlops/pkg/toolschema"
 	"github.com/mktkhr/nlops/pkg/uiroute"
@@ -34,7 +35,8 @@ func main() {
 		cmdPath  = flag.String("commands", "catalog/commands.json", "更新操作の定義。空文字で無効化")
 		rtPath   = flag.String("routes", "catalog/routes.json", "画面定義。空文字で画面遷移を無効化")
 		steps    = flag.Int("max-steps", 6, "Tool Loop の最大反復数")
-		auditDSN = flag.String("audit-dsn", "", "監査 DB の接続文字列。空なら NLOPS_DSN、それも無ければ記録しない")
+		auditDSN = flag.String("audit-dsn", "", "監査 DB の接続文字列。空なら NLOPS_DSN_FILE / NLOPS_DSN を見る")
+		noAudit  = flag.Bool("no-audit", false, "監査記録を無効にする")
 	)
 	flag.Parse()
 
@@ -69,8 +71,11 @@ func main() {
 	srv.Commands = cmds
 
 	dsn := *auditDSN
-	if dsn == "" {
-		dsn = os.Getenv("NLOPS_DSN")
+	if dsn == "" && !*noAudit {
+		dsn = dbconf.DSN()
+	}
+	if *noAudit {
+		dsn = ""
 	}
 	rec, err := audit.New(context.Background(), dsn, srv.Log)
 	if err != nil {

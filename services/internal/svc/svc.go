@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mktkhr/nlops/pkg/authctx"
+	"github.com/mktkhr/nlops/pkg/dbconf"
 )
 
 // Server は 1 つのモックサービス。
@@ -244,13 +245,8 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]any{"error": msg})
 }
 
-// DSN は環境変数から接続文字列を組み立てる。
-func DSN() string {
-	if v := os.Getenv("NLOPS_DSN"); v != "" {
-		return v
-	}
-	return "postgres://nlops:nlops@127.0.0.1:5432/nlops?sslmode=disable"
-}
+// DSN は接続文字列を返す。解決の順序は pkg/dbconf を参照。
+func DSN() string { return dbconf.DSN() }
 
 // ---- 実 API の冗長性の模擬 ----
 //

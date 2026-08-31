@@ -39,7 +39,6 @@
 !deploy/*.yaml
 !deploy/*.conf
 !deploy/*.disabled
-!deploy/.env.example
 !deploy/docker-entrypoint.d/*.sh
 !.dockerignore
 
@@ -54,6 +53,7 @@ docs/spike-raw/
 catalog/scale/
 # プロセス管理
 .run/
-# 秘密情報。.env.example だけを追跡する。
-deploy/.env
+# 秘密情報と手元固有の設定。
+deploy/secrets/
+local.mk
 deploy/certs/
