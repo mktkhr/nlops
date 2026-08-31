@@ -1,0 +1,18 @@
+# React をビルドして Nginx で配信する。
+# Nginx は静的配信と /api のリバースプロキシを担う (元案 §3 の Web Server)。
+
+FROM node:24-alpine AS build
+WORKDIR /src
+RUN corepack enable
+
+# pnpm-workspace.yaml は package.json の "catalog:" 参照に必要。
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
+
+COPY frontend/ ./
+RUN pnpm run build
+
+FROM nginx:alpine
+COPY --from=build /src/dist /usr/share/nginx/html
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf

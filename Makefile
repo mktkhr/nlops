@@ -1,7 +1,7 @@
 DSN ?= postgres://nlops:nlops@127.0.0.1:5432/nlops?sslmode=disable
 export NLOPS_DSN = $(DSN)
 
-.PHONY: build db services stop bff web test fmt
+.PHONY: build db services stop bff web test fmt up down logs ps
 build:
 	cd pkg && go build ./...
 	cd services && go build -o ../bin/ ./cmd/...
@@ -37,3 +37,26 @@ test:
 
 fmt:
 	@for m in pkg services orchestrator eval bff; do (cd $$m && gofmt -l -w .); done
+
+# ---- コンテナ構成 (元案 §3) ----
+# ホストへ公開するのは Nginx (:8081) だけ。DB も BFF も各サービスも内部に閉じる。
+# LLM はホストの llama-swap (:11435) をそのまま使う。
+
+COMPOSE = docker compose -f deploy/compose.yaml
+
+up:
+	$(COMPOSE) up -d --build
+	@echo "起動: http://localhost:$${NLOPS_PORT:-8081}/"
+
+down:
+	$(COMPOSE) down
+
+# データも消す。seed からやり直したいとき。
+reset:
+	$(COMPOSE) down -v
+
+logs:
+	$(COMPOSE) logs -f --tail=50
+
+ps:
+	$(COMPOSE) ps

@@ -1,0 +1,8 @@
+# ビルドコンテキストから外す。イメージに入れる必要が無く、キャッシュを壊すもの。
+**/node_modules
+**/dist
+bin/
+.run/
+.git/
+docs/spike-raw/
+catalog/scale/

@@ -1,0 +1,98 @@
+name: nlops
+
+# 元案 §3 の構成をそのまま立てる。
+#
+#   Browser → Nginx (静的配信 + /api リバースプロキシ) → BFF → Microservices → PostgreSQL
+#
+# ホストへ公開するのは Nginx だけ。DB も BFF も各サービスも内部ネットワークに閉じる。
+# LLM はホスト側の llama-swap をそのまま使う (VRAM を二重に消費しないため)。
+
+x-service: &service
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile.go
+  restart: unless-stopped
+  environment:
+    NLOPS_DSN: postgres://nlops:nlops@db:5432/nlops?sslmode=disable
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:18.3
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nlops
+      POSTGRES_USER: nlops
+      POSTGRES_PASSWORD: nlops
+    volumes:
+      # Postgres 18 以降は /var/lib/postgresql にマウントする
+      # (data 直下に置くと起動時に unused mount として弾かれる)。
+      - db-data:/var/lib/postgresql
+      # 初回起動時に 001 → 002 → 003 の順で流れる。
+      - ../services/schema:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nlops -d nlops"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  customer:
+    <<: *service
+    command: ["customer", "-addr", ":9101"]
+  order:
+    <<: *service
+    command: ["order", "-addr", ":9102"]
+  inventory:
+    <<: *service
+    command: ["inventory", "-addr", ":9103"]
+  shipping:
+    <<: *service
+    command: ["shipping", "-addr", ":9104"]
+  billing:
+    <<: *service
+    command: ["billing", "-addr", ":9105"]
+
+  bff:
+    <<: *service
+    command: ["bff", "-addr", ":8080", "-base", "http://host.docker.internal:11435"]
+    environment:
+      # 監査の記録先。業務データと同じ DB の audit schema。
+      NLOPS_DSN: postgres://nlops:nlops@db:5432/nlops?sslmode=disable
+      # カタログの base_url を compose 内のホスト名で上書きする。
+      NLOPS_BASE_CUSTOMER: http://customer:9101
+      NLOPS_BASE_ORDER: http://order:9102
+      NLOPS_BASE_INVENTORY: http://inventory:9103
+      NLOPS_BASE_SHIPPING: http://shipping:9104
+      NLOPS_BASE_BILLING: http://billing:9105
+    extra_hosts:
+      # ホストで動いている llama-swap (:11435) へ出るため。
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+      customer:
+        condition: service_started
+      order:
+        condition: service_started
+      inventory:
+        condition: service_started
+      shipping:
+        condition: service_started
+      billing:
+        condition: service_started
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    restart: unless-stopped
+    # ここだけがホストへの入口。
+    ports:
+      - "${NLOPS_PORT:-8081}:80"
+    depends_on:
+      - bff
+
+volumes:
+  db-data:

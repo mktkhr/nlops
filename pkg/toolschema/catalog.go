@@ -83,6 +83,11 @@ func Load(path string) (*Catalog, error) {
 		return nil, fmt.Errorf("カタログ解析: %w", err)
 	}
 	for i := range c.Services {
+		// base_url は Tool の定義ではなくデプロイ構成なので、環境変数で上書きできる。
+		// 例: NLOPS_BASE_CUSTOMER=http://customer:9101
+		if v := os.Getenv("NLOPS_BASE_" + strings.ToUpper(c.Services[i].Name)); v != "" {
+			c.Services[i].BaseURL = v
+		}
 		for j := range c.Services[i].Tools {
 			c.Services[i].Tools[j].service = c.Services[i].Name
 		}

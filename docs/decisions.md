@@ -18,6 +18,7 @@
 | D10 | 実装言語 | Orchestrator・モックサービス・評価ハーネスすべて Go 一本 |
 | D11 | ルーティング段数 | **1 段階に確定**。504 Tool まで比較計測した結果、2 段階は常に遅く精度も同等以下 |
 | D12 | 引数の妥当性検査 | 〜124 Tool は strict スキーマ。それ以上は **loose + Executor 側の enum 検証**へ切り替える（504 Tool で strict の文法コストが 2 倍以上） |
+| D17 | 配布 | **compose で 8 コンテナ**。ホストへ公開するのは Nginx だけ。LLM はホストの llama-swap を共有 |
 | D16 | 監査 | **BFF が所有する `audit` schema に永続化**。承認された更新も拒否された試行も残す |
 | D15 | WRITE | **Command Proposal 方式**。LLM は提案までで実行しない。実行は人間の確認後、BFF 経由で各サービスの更新 API |
 | D14 | モード判定 | **Intent Gate を既定で有効**。Loop の前に navigate / tool を 2 択で判定する |
@@ -356,3 +357,47 @@ msg=execute user=u_admin command=customer.updateContact status=200
 
 なお記録されるのは **BFF 経由の実利用だけ**で、評価ハーネス (Orchestrator を直接呼ぶ) は
 記録しない。テストのトレースが実利用の記録に混ざらないようにするため。
+
+## コンテナ構成 (2026-08-31)
+
+元案 §3 の構成をそのまま立てた。
+
+```
+Browser → Nginx (:8081) → BFF → Microservices ×5 → PostgreSQL
+                                  ↓
+                         host の llama-swap (:11435)
+```
+
+ホストへ公開するのは **Nginx だけ**。DB も BFF も各サービスも内部ネットワークに閉じる。
+
+### 詰まった点
+
+**Postgres 18 でデータの置き場所が変わっていた。** `/var/lib/postgresql/data` に
+ボリュームを当てると `unused mount` として起動を拒否される。`/var/lib/postgresql`
+にマウントする必要がある。
+
+**`go.work` はイメージに入れない。** ワークスペースを持ち込むと評価ハーネス (eval) の
+モジュールまで必要になる。各モジュールの `replace` で解決させれば、
+実行に要らないものを含めずに済む。
+
+**Nginx の既定はバッファする。** そのままだと Tool Loop の進捗が最後まで届かず、
+数秒〜数十秒のあいだ画面が固まったように見える。`proxy_buffering off` が必須。
+実測では step が 1 秒ごとに届いている (15:21:15 / :16 / :18 / :19)。
+
+### base_url はデプロイ構成であって Tool 定義ではない
+
+カタログの `base_url` は `127.0.0.1:910x` を指しているが、compose 内では
+サービス名で解決する必要がある。環境変数 `NLOPS_BASE_<SERVICE>` で上書きできるようにした。
+Tool の定義 (名前・説明・引数) と接続先は別物なので、後者だけを差し替えられる形にしている。
+
+### LLM はホストのものを共有する
+
+llama-swap をコンテナ内に持ち込むと VRAM を二重に消費する。16GB では成立しないので、
+`host.docker.internal` でホストの `:11435` へ出る。
+このため **compose だけでは完結せず、ホスト側に llama-swap が必要**。
+
+### 未対応
+
+- **TLS 終端**。元案 §3 に挙がっているが PoC では平文
+- **秘密情報の扱い**。DSN が compose に直書きされている
+- JS が 518kB (gzip 161kB) の単一チャンク。MUI が大半

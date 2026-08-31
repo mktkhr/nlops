@@ -34,6 +34,12 @@
 # --- ドキュメント ---
 !docs/*.md
 
+# --- コンテナ構成 ---
+!deploy/Dockerfile*
+!deploy/*.yaml
+!deploy/*.conf
+!.dockerignore
+
 # --- 上の許可より後に書いて、明示的に除外し続けるもの ---
 # 依存とビルド成果物
 node_modules/

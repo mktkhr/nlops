@@ -15,7 +15,7 @@ Input Adapter** として使えるかを検証する。
 
 ```text
 Browser (React + MUI)
-  ↓  /api/*  (開発時は Vite の proxy、本番は Nginx)
+  ↓  /api/*  (Nginx が静的配信とリバースプロキシ。開発時は Vite の proxy)
 BFF ──────────  認証 / DTO 変換 / Aggregation / SSE で進捗を配信
   ↓
 Orchestrator ── Tool Registry (catalog/services.json)
@@ -49,6 +49,7 @@ orchestrator/     Orchestrator
   executor/         Tool → HTTP 変換 / 認証付与 / Projection / 未解決 ID の差し戻し
   loop/             Tool Execution Loop
   cmd/orchctl/      CLI
+deploy/           コンテナ構成 (Nginx + BFF + 5 サービス + PostgreSQL)
 services/         モックマイクロサービス (5 サービス / 24 API)
 bff/              Backend For Frontend (Presentation / Orchestration のみ)
   internal/audit/   トレースと更新承認の永続化 (audit schema を所有)
@@ -63,11 +64,31 @@ eval/             評価ハーネス
   cmd/mkcatalog/    スケール検証用カタログの生成
 ```
 
+## 動かす
+
+### コンテナで動かす (元案 §3 の構成)
+
+```sh
+make up      # ビルドして起動。http://localhost:8081/
+make logs
+make down    # 停止 (データは残る)
+make reset   # データも消して seed からやり直す
+```
+
+ホストへ公開するのは Nginx の 8081 だけで、DB も BFF も各サービスも内部ネットワークに
+閉じる。DB は初回起動時に `services/schema/` の SQL が順に流れる。
+LLM はホストの llama-swap (`:11435`) をそのまま使う (VRAM を二重に消費しないため)。
+
+ポートを変えるなら `NLOPS_PORT=9000 make up`。
+
+### ローカルで直接動かす (開発時)
+
 ## 前提
 
 - Go 1.26 以上
 - Docker で PostgreSQL 18 (`nlops-db` コンテナ、ユーザー `nlops`)
 - llama.cpp / llama-swap が OpenAI 互換で `:11435` を提供していること
+- コンテナで動かす場合は Docker と compose v2 以上
 - 既定モデルは `gemma4-12b` (Gemma 4 12B QAT q4_0)。選定根拠は [docs/scale-report.md](docs/scale-report.md)
 
 ## 使い方
@@ -126,6 +147,14 @@ Web UI は `http://localhost:5173/`。右上のユーザー切り替えで権限
 | `-catalog` | `catalog/services.json` | 使用するカタログ (スケール検証で差し替える) |
 | `-json` | `false` | 実行トレースを JSON で出す |
 | `-audit-dsn` | 空 | BFF の監査 DB。空なら `NLOPS_DSN`、それも無ければ記録しない |
+
+### 環境変数
+
+| 変数 | 用途 |
+|---|---|
+| `NLOPS_DSN` | 各サービスと BFF の DB 接続先 |
+| `NLOPS_BASE_<SERVICE>` | カタログの `base_url` を上書きする（例: `NLOPS_BASE_ORDER=http://order:9102`）。接続先はデプロイ構成であって Tool 定義ではないため |
+| `NLOPS_PORT` | コンテナ構成で Nginx を公開するホストポート（既定 8081） |
 
 ## ユーザーと権限
 
