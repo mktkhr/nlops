@@ -1,0 +1,1051 @@
+{
+  "version": "1",
+  "note": "採点は「最終回答の文字列一致」ではなく、Service routing / 初手 Tool / 初手 args / 実行 Tool 列 で行う。args の match は equals | contains | one_of。",
+  "cases": [
+    {
+      "id": "A01",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "東日本担当の顧客を一覧で見せて",
+      "expected_services": [
+        "customer"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "region": {
+            "match": "equals",
+            "value": "EAST"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "A02",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "倉庫の一覧を教えて",
+      "expected_services": [
+        "inventory"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.listWarehouses"
+        ],
+        "args": {}
+      },
+      "required_tools": [
+        "inventory.listWarehouses"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "A03",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "使える配送業者を知りたい",
+      "expected_services": [
+        "shipping"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "shipping.listCarriers"
+        ],
+        "args": {}
+      },
+      "required_tools": [
+        "shipping.listCarriers"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "A04",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "在庫が5個を下回っている商品を出して",
+      "expected_services": [
+        "inventory"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.listLowStock"
+        ],
+        "args": {
+          "threshold": {
+            "match": "equals",
+            "value": 5
+          }
+        }
+      },
+      "required_tools": [
+        "inventory.listLowStock"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "A05",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "マウスという名前の商品を探して",
+      "expected_services": [
+        "inventory"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.searchProducts"
+        ],
+        "args": {
+          "keyword": {
+            "match": "contains",
+            "value": "マウス"
+          }
+        }
+      },
+      "required_tools": [
+        "inventory.searchProducts"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "A06",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "利用停止になっている顧客はいますか",
+      "expected_services": [
+        "customer"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "status": {
+            "match": "equals",
+            "value": "SUSPENDED"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "A07",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "支払期限を過ぎている請求書を全部出して",
+      "expected_services": [
+        "billing"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "billing.searchInvoices",
+          "billing.listUnpaid"
+        ],
+        "args": {}
+      },
+      "required_tools": [],
+      "forbidden_tools": [
+        "order.search"
+      ]
+    },
+    {
+      "id": "A08",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "周辺機器のカテゴリにある商品を見せて",
+      "expected_services": [
+        "inventory"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.searchProducts"
+        ],
+        "args": {
+          "category": {
+            "match": "contains",
+            "value": "周辺機器"
+          }
+        }
+      },
+      "required_tools": [
+        "inventory.searchProducts"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "B01",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "田中太郎さんの連絡先を教えて",
+      "expected_services": [
+        "customer"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search"
+      ],
+      "forbidden_tools": [],
+      "note": "「連絡先」は customer.get (email/phone) でも customer.listContacts (担当者のメール) でも答えられる。初版で customer.get を必須にしていたのは設定ミス。"
+    },
+    {
+      "id": "B02",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "佐藤花子さんの窓口担当者は誰ですか",
+      "expected_services": [
+        "customer"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "佐藤"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search",
+        "customer.listContacts"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "B03",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "大阪倉庫で在庫が少なくなっている商品を出して",
+      "expected_services": [
+        "inventory"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.listWarehouses",
+          "inventory.listLowStock"
+        ],
+        "args": {}
+      },
+      "required_tools": [
+        "inventory.listLowStock"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "B04",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "メカニカルキーボードの在庫はいくつありますか",
+      "expected_services": [
+        "inventory"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.searchProducts"
+        ],
+        "args": {
+          "keyword": {
+            "match": "contains",
+            "value": "キーボード"
+          }
+        }
+      },
+      "required_tools": [
+        "inventory.searchProducts",
+        "inventory.getStock"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "B05",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "田中太郎さんの注文が状態ごとに何件あるか集計して",
+      "expected_services": [
+        "customer",
+        "order"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search",
+        "order.countByStatus"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "B06",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "高橋みどりさんの与信ランクを確認したい",
+      "expected_services": [
+        "customer"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "高橋"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search",
+        "customer.getCreditStatus"
+      ],
+      "forbidden_tools": [
+        "billing.getOutstandingBalance"
+      ]
+    },
+    {
+      "id": "C01",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "田中太郎さんの未発送の注文を確認したい",
+      "expected_services": [
+        "customer",
+        "order"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search",
+        "order.search"
+      ],
+      "forbidden_tools": [
+        "billing.listUnpaid"
+      ]
+    },
+    {
+      "id": "C02",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "佐藤花子さんの注文が今どこまで配送されているか教えて",
+      "expected_services": [
+        "customer",
+        "order",
+        "shipping"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "佐藤"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search",
+        "order.search",
+        "shipping.getStatus"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "C03",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "田中太郎さんの注文はいつ届きますか",
+      "expected_services": [
+        "customer",
+        "order",
+        "shipping"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search",
+        "order.search",
+        "shipping.getDeliveryEstimate"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "C04",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "高橋みどりさんに未払いの請求はありますか",
+      "expected_services": [
+        "customer",
+        "billing"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "高橋"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search"
+      ],
+      "forbidden_tools": [
+        "order.search"
+      ]
+    },
+    {
+      "id": "C05",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "佐藤花子さんが今月いくら発注したか教えて",
+      "expected_services": [
+        "customer",
+        "order"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "佐藤"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search",
+        "order.getSummary"
+      ],
+      "forbidden_tools": [
+        "billing.searchInvoices"
+      ]
+    },
+    {
+      "id": "C06",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "田中太郎さんの一番新しい注文の明細を見せて",
+      "expected_services": [
+        "customer",
+        "order"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search",
+        "order.search",
+        "order.listItems"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "C07",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "鈴木一郎さんの与信ランクと、いま未払いがいくらあるかを両方教えて",
+      "expected_services": [
+        "customer",
+        "billing"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "鈴木"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search",
+        "customer.getCreditStatus",
+        "billing.getOutstandingBalance"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "C08",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "配送が失敗している出荷について、どの顧客のものか教えて",
+      "expected_services": [
+        "shipping",
+        "order",
+        "customer"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "shipping.search"
+        ],
+        "args": {
+          "status": {
+            "match": "equals",
+            "value": "FAILED"
+          }
+        }
+      },
+      "required_tools": [
+        "shipping.search",
+        "order.get"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "C09",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "27インチモニタを注文している顧客はいますか",
+      "expected_services": [
+        "inventory",
+        "order"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.searchProducts"
+        ],
+        "args": {
+          "keyword": {
+            "match": "contains",
+            "value": "モニタ"
+          }
+        }
+      },
+      "required_tools": [
+        "inventory.searchProducts"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "C10",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "田中太郎さんについて、注文状況と未払い状況をまとめて教えて",
+      "expected_services": [
+        "customer",
+        "order",
+        "billing"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search",
+        "order.countByStatus",
+        "billing.getOutstandingBalance"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "D01",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "田中太郎さんの未払いを確認したい",
+      "note": "「未払い」は請求。注文の未発送ではない。",
+      "expected_services": [
+        "customer",
+        "billing"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search"
+      ],
+      "forbidden_tools": [
+        "order.search",
+        "order.countByStatus"
+      ]
+    },
+    {
+      "id": "D02",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "佐藤花子さんの与信限度額はいくらですか",
+      "note": "限度額は customer.getCreditStatus。残高ではない。",
+      "expected_services": [
+        "customer"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "佐藤"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.getCreditStatus"
+      ],
+      "forbidden_tools": [
+        "billing.getOutstandingBalance"
+      ]
+    },
+    {
+      "id": "D03",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "高橋みどりさんの未払い残高の合計を教えて",
+      "note": "残高合計は billing.getOutstandingBalance。与信限度額ではない。",
+      "expected_services": [
+        "customer",
+        "billing"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "高橋"
+          }
+        }
+      },
+      "required_tools": [
+        "billing.getOutstandingBalance"
+      ],
+      "forbidden_tools": [
+        "customer.getCreditStatus"
+      ]
+    },
+    {
+      "id": "D04",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "鈴木一郎さんの今年の受注金額の合計は",
+      "note": "受注ベースは order.getSummary。請求金額ではない。",
+      "expected_services": [
+        "customer",
+        "order"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "鈴木"
+          }
+        }
+      },
+      "required_tools": [
+        "order.getSummary"
+      ],
+      "forbidden_tools": [
+        "billing.searchInvoices",
+        "billing.getOutstandingBalance"
+      ]
+    },
+    {
+      "id": "D05",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "注文 O-1001 の荷物が今どこにあるか知りたい",
+      "note": "現在地は追跡履歴。配達予定日ではない。",
+      "expected_services": [
+        "shipping"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "shipping.getStatus"
+        ],
+        "args": {
+          "order_id": {
+            "match": "contains",
+            "value": "O-1001"
+          }
+        }
+      },
+      "required_tools": [
+        "shipping.getStatus"
+      ],
+      "forbidden_tools": [
+        "shipping.getDeliveryEstimate"
+      ]
+    },
+    {
+      "id": "D06",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "注文 O-1001 の到着予定日を教えて",
+      "note": "予定日は getDeliveryEstimate。",
+      "expected_services": [
+        "shipping"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "shipping.getDeliveryEstimate",
+          "shipping.getStatus"
+        ],
+        "args": {
+          "order_id": {
+            "match": "contains",
+            "value": "O-1001"
+          }
+        }
+      },
+      "required_tools": [
+        "shipping.getDeliveryEstimate"
+      ],
+      "forbidden_tools": [
+        "shipping.getTracking"
+      ]
+    },
+    {
+      "id": "D07",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "まだ出荷されていない注文を出して",
+      "note": "出荷前の注文は order.search。shipping には存在しない。",
+      "expected_services": [
+        "order"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "order.search"
+        ],
+        "args": {}
+      },
+      "required_tools": [
+        "order.search"
+      ],
+      "forbidden_tools": [
+        "shipping.search",
+        "billing.listUnpaid"
+      ]
+    },
+    {
+      "id": "D08",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "請求書 INV-2001 にいくら入金されていますか",
+      "note": "入金額は getPaymentStatus。請求書詳細ではない。",
+      "expected_services": [
+        "billing"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "billing.getPaymentStatus",
+          "billing.getInvoice"
+        ],
+        "args": {
+          "invoice_id": {
+            "match": "contains",
+            "value": "INV-2001"
+          }
+        }
+      },
+      "required_tools": [
+        "billing.getPaymentStatus"
+      ],
+      "forbidden_tools": []
+    },
+    {
+      "id": "E01",
+      "category": "permission",
+      "user_id": "u_sales_e",
+      "query": "田中という名前の顧客を探して",
+      "note": "EAST営業。田中太郎(EAST)は見えるが田中次郎(WEST)は見えない。",
+      "expected_services": [
+        "customer"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search"
+      ],
+      "forbidden_tools": [],
+      "permission": {
+        "must_include_ids": [
+          "C001"
+        ],
+        "must_exclude_ids": [
+          "C004"
+        ]
+      }
+    },
+    {
+      "id": "E02",
+      "category": "permission",
+      "user_id": "u_sales_w",
+      "query": "田中という名前の顧客を探して",
+      "note": "WEST営業。田中次郎(WEST)は見えるが田中太郎(EAST)は見えない。",
+      "expected_services": [
+        "customer"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search"
+      ],
+      "forbidden_tools": [],
+      "permission": {
+        "must_include_ids": [
+          "C004"
+        ],
+        "must_exclude_ids": [
+          "C001"
+        ]
+      }
+    },
+    {
+      "id": "E03",
+      "category": "permission",
+      "user_id": "u_admin",
+      "query": "田中という名前の顧客を探して",
+      "note": "管理者。両方見える。",
+      "expected_services": [
+        "customer"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search"
+      ],
+      "forbidden_tools": [],
+      "permission": {
+        "must_include_ids": [
+          "C001",
+          "C004"
+        ],
+        "must_exclude_ids": []
+      }
+    },
+    {
+      "id": "E04",
+      "category": "permission",
+      "user_id": "u_wh",
+      "query": "田中太郎さんの注文を確認したい",
+      "note": "倉庫ロール。顧客・注文とも 403。到達不能である旨を回答すべき。",
+      "expected_services": [
+        "customer",
+        "order"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {}
+      },
+      "required_tools": [],
+      "forbidden_tools": [],
+      "permission": {
+        "expect_denied": true
+      }
+    },
+    {
+      "id": "E05",
+      "category": "permission",
+      "user_id": "u_wh",
+      "query": "在庫が少ない商品を教えて",
+      "note": "倉庫ロールでも在庫は参照できる。",
+      "expected_services": [
+        "inventory"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.listLowStock"
+        ],
+        "args": {}
+      },
+      "required_tools": [
+        "inventory.listLowStock"
+      ],
+      "forbidden_tools": [],
+      "permission": {
+        "expect_denied": false
+      }
+    },
+    {
+      "id": "E06",
+      "category": "permission",
+      "user_id": "u_support",
+      "query": "田中太郎さんの未払い残高を教えて",
+      "note": "サポートロールは billing が 403。",
+      "expected_services": [
+        "customer",
+        "billing"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [],
+      "forbidden_tools": [],
+      "permission": {
+        "expect_denied": true
+      }
+    },
+    {
+      "id": "E07",
+      "category": "permission",
+      "user_id": "u_support",
+      "query": "田中太郎さんの注文の配送状況を教えて",
+      "note": "サポートロールは customer/order/shipping を参照できる。",
+      "expected_services": [
+        "customer",
+        "order",
+        "shipping"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search",
+        "order.search"
+      ],
+      "forbidden_tools": [],
+      "permission": {
+        "expect_denied": false
+      }
+    },
+    {
+      "id": "E08",
+      "category": "permission",
+      "user_id": "u_sales_e",
+      "query": "未払いの請求書を全部出して",
+      "note": "EAST営業。EAST顧客の請求のみ。",
+      "expected_services": [
+        "billing"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "billing.listUnpaid",
+          "billing.searchInvoices"
+        ],
+        "args": {}
+      },
+      "required_tools": [],
+      "forbidden_tools": [
+        "order.search"
+      ],
+      "permission": {
+        "must_exclude_ids": [
+          "C004",
+          "C005",
+          "C006"
+        ]
+      }
+    }
+  ]
+}

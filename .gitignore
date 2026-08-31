@@ -1,0 +1,47 @@
+# デフォルトで全てを無視し、追跡するものだけを明示的に許可する。
+*
+
+# ディレクトリは辿れるようにする (これが無いと配下の許可が効かない)
+!*/
+
+# --- リポジトリ直下 ---
+!.gitignore
+!README.md
+!Makefile
+!go.work
+
+# --- Go のソースとモジュール定義 ---
+!*.go
+!go.mod
+!go.sum
+
+# --- Frontend のソースと設定 ---
+!*.ts
+!*.tsx
+!*.css
+!*.html
+!*.svg
+!package.json
+!tsconfig*.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+
+# --- 定義・データ (手で書いたもの) ---
+!catalog/*.json
+!eval/golden/*.json
+!services/schema/*.sql
+
+# --- ドキュメント ---
+!docs/*.md
+
+# --- 上の許可より後に書いて、明示的に除外し続けるもの ---
+# 依存とビルド成果物
+node_modules/
+frontend/dist/
+bin/
+# 生の計測ログ。再実行すれば得られる。
+docs/spike-raw/
+# mkcatalog が decoys.json から生成する派生物。
+catalog/scale/
+# プロセス管理
+.run/

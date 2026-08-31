@@ -1,0 +1,186 @@
+{
+  "note": "スケール検証用のダミーサービス。実バックエンドは持たない (Tool 選定の精度と context への影響だけを測る)。パラメータ表記: s=string / i=integer / e:A|B=enum。先頭の ! は必須。",
+  "stub_base_url": "http://127.0.0.1:9199",
+  "services": [
+    {
+      "name": "procurement",
+      "title": "購買サービス",
+      "description": "仕入先への発注を管理する。発注書の起票・承認・入荷予定を保持する。",
+      "responsibility": "自社が仕入先へ出す発注を扱う。顧客から受ける注文は扱わない（それは order）。",
+      "tools": [
+        {"n":"searchPurchaseOrders","d":"仕入先・状態・起票日で発注書を検索する。","p":{"supplier_id":"s:仕入先ID","status":"e:DRAFT|APPROVED|ORDERED|RECEIVED|CANCELLED:発注書の状態","raised_from":"s:起票日の下限 (YYYY-MM-DD)"},"f":["purchase_order_id","supplier_id","status","raised_at","total_amount"],"m":20},
+        {"n":"getPurchaseOrder","d":"発注書IDを指定して発注書の詳細を取得する。","p":{"!purchase_order_id":"s:発注書ID"},"f":["purchase_order_id","supplier_id","status","raised_at","total_amount"],"m":1},
+        {"n":"listPurchaseOrderLines","d":"発注書の明細行を取得する。","p":{"!purchase_order_id":"s:発注書ID"},"f":["product_id","product_name","quantity","unit_cost"],"m":20},
+        {"n":"searchSuppliers","d":"仕入先名やカテゴリで仕入先を検索する。","p":{"name":"s:仕入先名の部分一致","category":"s:取扱カテゴリ"},"f":["supplier_id","name","category","status"],"m":10},
+        {"n":"getSupplier","d":"仕入先IDを指定して仕入先の詳細を取得する。","p":{"!supplier_id":"s:仕入先ID"},"f":["supplier_id","name","category","contact_email","lead_time_days"],"m":1},
+        {"n":"getIncomingSchedule","d":"発注書の入荷予定日を取得する。","p":{"!purchase_order_id":"s:発注書ID"},"f":["purchase_order_id","expected_at","confidence"],"m":1},
+        {"n":"listPendingApprovals","d":"承認待ちの発注書の一覧を取得する。","p":{"approver_id":"s:承認者ID"},"f":["purchase_order_id","supplier_id","raised_at","total_amount"],"m":20},
+        {"n":"getSupplierSpend","d":"仕入先ごとの発注金額を期間で集計する。","p":{"!supplier_id":"s:仕入先ID","!period":"e:THIS_MONTH|LAST_MONTH|THIS_YEAR:集計期間"},"f":["supplier_id","period","order_count","total_amount"],"m":1},
+        {"n":"listBackorders","d":"入荷が遅延している発注の一覧を取得する。","p":{"supplier_id":"s:仕入先ID"},"f":["purchase_order_id","supplier_id","expected_at","days_late"],"m":20},
+        {"n":"getSupplierRating","d":"仕入先の納期遵守率と品質評価を取得する。","p":{"!supplier_id":"s:仕入先ID"},"f":["supplier_id","on_time_rate","quality_score","evaluated_at"],"m":1}
+      ]
+    },
+    {
+      "name": "accounting",
+      "title": "会計サービス",
+      "description": "仕訳と会計期間を管理する。総勘定元帳と試算表を保持する。",
+      "responsibility": "会計上の仕訳を扱う。顧客への請求書や入金の状況は扱わない（それは billing）。",
+      "tools": [
+        {"n":"searchJournalEntries","d":"勘定科目・計上日で仕訳を検索する。","p":{"account_code":"s:勘定科目コード","posted_from":"s:計上日の下限 (YYYY-MM-DD)","posted_to":"s:計上日の上限 (YYYY-MM-DD)"},"f":["entry_id","account_code","posted_at","debit","credit"],"m":20},
+        {"n":"getJournalEntry","d":"仕訳IDを指定して仕訳の詳細を取得する。","p":{"!entry_id":"s:仕訳ID"},"f":["entry_id","account_code","posted_at","debit","credit","memo"],"m":1},
+        {"n":"listAccounts","d":"勘定科目の一覧を取得する。","p":{"category":"s:科目区分"},"f":["account_code","name","category"],"m":20},
+        {"n":"getAccountBalance","d":"勘定科目の残高を取得する。顧客の未払い残高ではない。","p":{"!account_code":"s:勘定科目コード","as_of":"s:基準日 (YYYY-MM-DD)"},"f":["account_code","as_of","balance"],"m":1},
+        {"n":"getTrialBalance","d":"会計期間の試算表を取得する。","p":{"!fiscal_period":"s:会計期間 (YYYY-MM)"},"f":["account_code","account_name","debit_total","credit_total"],"m":20},
+        {"n":"listFiscalPeriods","d":"会計期間の一覧と締め状況を取得する。","p":{},"f":["fiscal_period","status","closed_at"],"m":20},
+        {"n":"getCostCenterSummary","d":"部門ごとの費用を集計する。","p":{"!cost_center_id":"s:部門ID","!fiscal_period":"s:会計期間 (YYYY-MM)"},"f":["cost_center_id","fiscal_period","total_amount"],"m":1},
+        {"n":"searchTaxRecords","d":"消費税の課税区分ごとの記録を検索する。","p":{"tax_code":"s:税区分コード","fiscal_period":"s:会計期間 (YYYY-MM)"},"f":["tax_code","fiscal_period","taxable_amount","tax_amount"],"m":20},
+        {"n":"getRevenueRecognition","d":"収益認識のスケジュールを取得する。","p":{"!contract_id":"s:契約ID"},"f":["contract_id","recognized_amount","deferred_amount","next_recognition_at"],"m":1},
+        {"n":"listUnpostedEntries","d":"未転記の仕訳の一覧を取得する。","p":{"fiscal_period":"s:会計期間 (YYYY-MM)"},"f":["entry_id","account_code","posted_at","debit","credit"],"m":20}
+      ]
+    },
+    {
+      "name": "warehouseops",
+      "title": "倉庫作業サービス",
+      "description": "倉庫内の入出庫作業と棚卸を管理する。作業指示と実績を保持する。",
+      "responsibility": "倉庫内の作業を扱う。商品マスタや在庫数そのものは扱わない（それは inventory）。",
+      "tools": [
+        {"n":"searchTasks","d":"倉庫の作業指示を状態や種別で検索する。","p":{"warehouse_id":"s:倉庫ID","task_type":"e:PICKING|PUTAWAY|COUNT|PACKING:作業種別","status":"e:OPEN|IN_PROGRESS|DONE:作業の状態"},"f":["task_id","warehouse_id","task_type","status","assigned_to"],"m":20},
+        {"n":"getTask","d":"作業指示IDを指定して詳細を取得する。","p":{"!task_id":"s:作業指示ID"},"f":["task_id","warehouse_id","task_type","status","assigned_to","due_at"],"m":1},
+        {"n":"listInboundReceipts","d":"入庫実績の一覧を取得する。","p":{"warehouse_id":"s:倉庫ID","received_from":"s:入庫日の下限 (YYYY-MM-DD)"},"f":["receipt_id","warehouse_id","product_id","quantity","received_at"],"m":20},
+        {"n":"listOutboundIssues","d":"出庫実績の一覧を取得する。","p":{"warehouse_id":"s:倉庫ID","issued_from":"s:出庫日の下限 (YYYY-MM-DD)"},"f":["issue_id","warehouse_id","product_id","quantity","issued_at"],"m":20},
+        {"n":"getCycleCount","d":"棚卸の結果と差異を取得する。","p":{"!count_id":"s:棚卸ID"},"f":["count_id","warehouse_id","counted_at","variance_count"],"m":1},
+        {"n":"listCycleCounts","d":"棚卸の実施履歴を取得する。","p":{"warehouse_id":"s:倉庫ID"},"f":["count_id","warehouse_id","counted_at","status"],"m":20},
+        {"n":"listLocations","d":"倉庫内のロケーション（棚番）の一覧を取得する。","p":{"!warehouse_id":"s:倉庫ID","zone":"s:ゾーン"},"f":["location_id","zone","capacity","occupied"],"m":20},
+        {"n":"getLocationContents","d":"ロケーションに格納されている商品を取得する。","p":{"!location_id":"s:ロケーションID"},"f":["product_id","product_name","quantity"],"m":20},
+        {"n":"getWorkerProductivity","d":"作業者ごとの処理件数を集計する。","p":{"!worker_id":"s:作業者ID","!period":"e:TODAY|THIS_WEEK|THIS_MONTH:集計期間"},"f":["worker_id","period","task_count","avg_minutes"],"m":1},
+        {"n":"listOpenExceptions","d":"作業中に発生した異常（破損・数量差異）の一覧を取得する。","p":{"warehouse_id":"s:倉庫ID"},"f":["exception_id","warehouse_id","task_id","reason","raised_at"],"m":20}
+      ]
+    },
+    {
+      "name": "pricing",
+      "title": "価格サービス",
+      "description": "商品の価格表と割引ルールを管理する。顧客別価格とキャンペーンを保持する。",
+      "responsibility": "価格の決定ルールを扱う。商品マスタの標準単価は inventory が持つ。",
+      "tools": [
+        {"n":"getPriceList","d":"価格表の内容を取得する。","p":{"!price_list_id":"s:価格表ID"},"f":["price_list_id","name","currency","valid_from","valid_to"],"m":1},
+        {"n":"listPriceLists","d":"価格表の一覧を取得する。","p":{"status":"e:ACTIVE|EXPIRED|DRAFT:価格表の状態"},"f":["price_list_id","name","valid_from","valid_to","status"],"m":20},
+        {"n":"getCustomerPrice","d":"顧客と商品の組み合わせに適用される価格を取得する。","p":{"!customer_id":"s:顧客ID","!product_id":"s:商品ID"},"f":["customer_id","product_id","unit_price","applied_rule"],"m":1},
+        {"n":"searchDiscountRules","d":"割引ルールを検索する。","p":{"customer_id":"s:顧客ID","product_id":"s:商品ID","active_only":"s:ACTIVE のみに絞る場合は true"},"f":["rule_id","name","discount_rate","valid_to"],"m":20},
+        {"n":"getDiscountRule","d":"割引ルールIDを指定して詳細を取得する。","p":{"!rule_id":"s:割引ルールID"},"f":["rule_id","name","discount_rate","conditions","valid_to"],"m":1},
+        {"n":"listCampaigns","d":"実施中・実施予定のキャンペーンの一覧を取得する。","p":{"status":"e:PLANNED|RUNNING|ENDED:キャンペーンの状態"},"f":["campaign_id","name","status","starts_at","ends_at"],"m":20},
+        {"n":"getCampaign","d":"キャンペーンIDを指定して詳細を取得する。","p":{"!campaign_id":"s:キャンペーンID"},"f":["campaign_id","name","status","discount_rate","target_category"],"m":1},
+        {"n":"getMarginAnalysis","d":"商品の粗利率を取得する。","p":{"!product_id":"s:商品ID"},"f":["product_id","unit_price","unit_cost","margin_rate"],"m":1},
+        {"n":"listPriceChanges","d":"価格改定の履歴を取得する。","p":{"product_id":"s:商品ID","changed_from":"s:改定日の下限 (YYYY-MM-DD)"},"f":["product_id","old_price","new_price","changed_at"],"m":20},
+        {"n":"getQuoteEstimate","d":"数量に応じた見積単価を試算する。","p":{"!product_id":"s:商品ID","!quantity":"i:数量","customer_id":"s:顧客ID"},"f":["product_id","quantity","unit_price","total_amount"],"m":1}
+      ]
+    },
+    {
+      "name": "contract",
+      "title": "契約サービス",
+      "description": "顧客との契約を管理する。契約期間・条項・更新状況を保持する。",
+      "responsibility": "契約そのものを扱う。顧客の属性は customer が、請求は billing が持つ。",
+      "tools": [
+        {"n":"searchContracts","d":"顧客・状態・契約期間で契約を検索する。","p":{"customer_id":"s:顧客ID","status":"e:ACTIVE|EXPIRED|TERMINATED|DRAFT:契約の状態","starts_from":"s:契約開始日の下限 (YYYY-MM-DD)"},"f":["contract_id","customer_id","status","starts_at","ends_at"],"m":20},
+        {"n":"getContract","d":"契約IDを指定して契約の詳細を取得する。","p":{"!contract_id":"s:契約ID"},"f":["contract_id","customer_id","status","starts_at","ends_at","monthly_amount"],"m":1},
+        {"n":"listContractTerms","d":"契約に含まれる条項の一覧を取得する。","p":{"!contract_id":"s:契約ID"},"f":["term_id","category","summary"],"m":20},
+        {"n":"listExpiringContracts","d":"まもなく満了する契約の一覧を取得する。","p":{"within_days":"i:何日以内に満了するか。省略時は 30。"},"f":["contract_id","customer_id","ends_at","auto_renew"],"m":20},
+        {"n":"getRenewalStatus","d":"契約の更新手続きの進捗を取得する。","p":{"!contract_id":"s:契約ID"},"f":["contract_id","auto_renew","renewal_stage","decided_at"],"m":1},
+        {"n":"listAmendments","d":"契約変更の履歴を取得する。","p":{"!contract_id":"s:契約ID"},"f":["amendment_id","effective_at","summary"],"m":20},
+        {"n":"getSlaTerms","d":"契約に紐づく SLA の内容を取得する。","p":{"!contract_id":"s:契約ID"},"f":["contract_id","response_hours","uptime_target","penalty_rate"],"m":1},
+        {"n":"searchTemplates","d":"契約テンプレートを検索する。","p":{"category":"s:テンプレート区分"},"f":["template_id","name","category","version"],"m":20},
+        {"n":"getContractValue","d":"契約の総額と残存価値を取得する。","p":{"!contract_id":"s:契約ID"},"f":["contract_id","total_value","remaining_value"],"m":1},
+        {"n":"listSignatories","d":"契約の署名者の一覧を取得する。","p":{"!contract_id":"s:契約ID"},"f":["signatory_id","name","role","signed_at"],"m":20}
+      ]
+    },
+    {
+      "name": "support",
+      "title": "サポートサービス",
+      "description": "顧客からの問い合わせチケットを管理する。対応履歴と満足度を保持する。",
+      "responsibility": "問い合わせ対応を扱う。顧客の属性や注文の内容は扱わない。",
+      "tools": [
+        {"n":"searchTickets","d":"顧客・状態・優先度で問い合わせチケットを検索する。","p":{"customer_id":"s:顧客ID","status":"e:OPEN|PENDING|RESOLVED|CLOSED:チケットの状態","priority":"e:LOW|NORMAL|HIGH|URGENT:優先度"},"f":["ticket_id","customer_id","subject","status","priority"],"m":20},
+        {"n":"getTicket","d":"チケットIDを指定して詳細を取得する。","p":{"!ticket_id":"s:チケットID"},"f":["ticket_id","customer_id","subject","status","priority","opened_at"],"m":1},
+        {"n":"listTicketMessages","d":"チケットのやり取りの履歴を取得する。","p":{"!ticket_id":"s:チケットID"},"f":["posted_at","author","body_excerpt"],"m":20},
+        {"n":"listOverdueTickets","d":"対応期限を過ぎているチケットの一覧を取得する。","p":{"assignee_id":"s:担当者ID"},"f":["ticket_id","customer_id","due_at","hours_late"],"m":20},
+        {"n":"getSatisfactionScore","d":"顧客の満足度スコアを取得する。","p":{"!customer_id":"s:顧客ID"},"f":["customer_id","score","response_count","measured_at"],"m":1},
+        {"n":"listCategories","d":"問い合わせ区分の一覧を取得する。","p":{},"f":["category_id","name","default_priority"],"m":20},
+        {"n":"getAssigneeWorkload","d":"担当者の対応中チケット件数を取得する。","p":{"!assignee_id":"s:担当者ID"},"f":["assignee_id","open_count","pending_count","avg_resolution_hours"],"m":1},
+        {"n":"searchKnowledgeBase","d":"社内ナレッジ記事をキーワードで検索する。","p":{"keyword":"s:検索キーワード","category_id":"s:区分ID"},"f":["article_id","title","category_id","updated_at"],"m":10},
+        {"n":"getArticle","d":"ナレッジ記事IDを指定して内容を取得する。","p":{"!article_id":"s:記事ID"},"f":["article_id","title","summary","updated_at"],"m":1},
+        {"n":"getResolutionStats","d":"期間ごとの解決件数と平均対応時間を集計する。","p":{"!period":"e:THIS_WEEK|THIS_MONTH|LAST_MONTH:集計期間"},"f":["period","resolved_count","avg_resolution_hours"],"m":1}
+      ]
+    },
+    {
+      "name": "logistics",
+      "title": "幹線物流サービス",
+      "description": "拠点間の幹線輸送と配車計画を管理する。便・車両・積載を保持する。",
+      "responsibility": "拠点間の輸送計画を扱う。個別の注文の配送進捗は扱わない（それは shipping）。",
+      "tools": [
+        {"n":"searchTrips","d":"出発拠点・到着拠点・日付で幹線便を検索する。","p":{"origin_hub":"s:出発拠点コード","dest_hub":"s:到着拠点コード","departs_on":"s:出発日 (YYYY-MM-DD)"},"f":["trip_id","origin_hub","dest_hub","departs_at","status"],"m":20},
+        {"n":"getTrip","d":"便IDを指定して幹線便の詳細を取得する。","p":{"!trip_id":"s:便ID"},"f":["trip_id","origin_hub","dest_hub","departs_at","arrives_at","vehicle_id"],"m":1},
+        {"n":"listHubs","d":"物流拠点の一覧を取得する。","p":{"region":"s:地域"},"f":["hub_id","name","region","capacity"],"m":20},
+        {"n":"getVehicle","d":"車両IDを指定して車両の詳細を取得する。","p":{"!vehicle_id":"s:車両ID"},"f":["vehicle_id","plate","capacity_kg","status"],"m":1},
+        {"n":"listAvailableVehicles","d":"指定日に空いている車両の一覧を取得する。","p":{"!on_date":"s:対象日 (YYYY-MM-DD)","hub_id":"s:拠点ID"},"f":["vehicle_id","plate","capacity_kg","hub_id"],"m":20},
+        {"n":"getLoadPlan","d":"便の積載計画を取得する。","p":{"!trip_id":"s:便ID"},"f":["trip_id","total_weight_kg","utilization_rate","package_count"],"m":1},
+        {"n":"listDelayedTrips","d":"遅延している幹線便の一覧を取得する。","p":{"origin_hub":"s:出発拠点コード"},"f":["trip_id","origin_hub","dest_hub","delay_minutes"],"m":20},
+        {"n":"getDriverSchedule","d":"乗務員の稼働予定を取得する。","p":{"!driver_id":"s:乗務員ID","!on_date":"s:対象日 (YYYY-MM-DD)"},"f":["driver_id","on_date","trip_count","total_hours"],"m":1},
+        {"n":"getRouteDistance","d":"拠点間の距離と標準所要時間を取得する。","p":{"!origin_hub":"s:出発拠点コード","!dest_hub":"s:到着拠点コード"},"f":["origin_hub","dest_hub","distance_km","standard_minutes"],"m":1},
+        {"n":"getHubThroughput","d":"拠点ごとの取扱量を集計する。","p":{"!hub_id":"s:拠点ID","!period":"e:TODAY|THIS_WEEK|THIS_MONTH:集計期間"},"f":["hub_id","period","inbound_count","outbound_count"],"m":1}
+      ]
+    },
+    {
+      "name": "hr",
+      "title": "人事サービス",
+      "description": "従業員と組織を管理する。所属・役職・勤怠を保持する。",
+      "responsibility": "従業員に関する情報を扱う。顧客は扱わない。",
+      "tools": [
+        {"n":"searchEmployees","d":"氏名・部署・役職で従業員を検索する。","p":{"name":"s:氏名の部分一致","department_id":"s:部署ID","status":"e:ACTIVE|LEAVE|RETIRED:在籍状態"},"f":["employee_id","name","department_id","title"],"m":10},
+        {"n":"getEmployee","d":"従業員IDを指定して詳細を取得する。","p":{"!employee_id":"s:従業員ID"},"f":["employee_id","name","department_id","title","hired_at","email"],"m":1},
+        {"n":"listDepartments","d":"部署の一覧を取得する。","p":{},"f":["department_id","name","parent_id","head_employee_id"],"m":20},
+        {"n":"getDepartment","d":"部署IDを指定して詳細を取得する。","p":{"!department_id":"s:部署ID"},"f":["department_id","name","member_count","head_employee_id"],"m":1},
+        {"n":"getAttendanceSummary","d":"従業員の勤怠を期間で集計する。","p":{"!employee_id":"s:従業員ID","!period":"e:THIS_MONTH|LAST_MONTH:集計期間"},"f":["employee_id","period","work_days","overtime_hours"],"m":1},
+        {"n":"listLeaveRequests","d":"休暇申請の一覧を取得する。","p":{"employee_id":"s:従業員ID","status":"e:PENDING|APPROVED|REJECTED:申請の状態"},"f":["request_id","employee_id","leave_type","starts_at","status"],"m":20},
+        {"n":"getLeaveBalance","d":"従業員の有給残日数を取得する。","p":{"!employee_id":"s:従業員ID"},"f":["employee_id","remaining_days","granted_days","expires_at"],"m":1},
+        {"n":"listTeamMembers","d":"部署に所属する従業員の一覧を取得する。","p":{"!department_id":"s:部署ID"},"f":["employee_id","name","title"],"m":20},
+        {"n":"getReportingLine","d":"従業員の上長を取得する。","p":{"!employee_id":"s:従業員ID"},"f":["employee_id","manager_id","manager_name"],"m":1},
+        {"n":"listOpenPositions","d":"募集中のポジションの一覧を取得する。","p":{"department_id":"s:部署ID"},"f":["position_id","title","department_id","opened_at"],"m":20}
+      ]
+    },
+    {
+      "name": "asset",
+      "title": "資産サービス",
+      "description": "社内の設備・機器を管理する。保有資産と保守履歴を保持する。",
+      "responsibility": "社内資産を扱う。販売する商品は扱わない（それは inventory）。",
+      "tools": [
+        {"n":"searchAssets","d":"資産名・区分・設置場所で資産を検索する。","p":{"name":"s:資産名の部分一致","category":"s:資産区分","location_id":"s:設置場所ID"},"f":["asset_id","name","category","location_id","status"],"m":10},
+        {"n":"getAsset","d":"資産IDを指定して詳細を取得する。","p":{"!asset_id":"s:資産ID"},"f":["asset_id","name","category","acquired_at","book_value","status"],"m":1},
+        {"n":"listMaintenanceHistory","d":"資産の保守履歴を取得する。","p":{"!asset_id":"s:資産ID"},"f":["performed_at","vendor","summary","cost"],"m":20},
+        {"n":"listDueMaintenance","d":"保守期限が近い資産の一覧を取得する。","p":{"within_days":"i:何日以内か。省略時は 30。"},"f":["asset_id","name","next_maintenance_at"],"m":20},
+        {"n":"getDepreciation","d":"資産の減価償却の状況を取得する。","p":{"!asset_id":"s:資産ID"},"f":["asset_id","method","accumulated","book_value"],"m":1},
+        {"n":"listLocations","d":"資産の設置場所の一覧を取得する。","p":{},"f":["location_id","name","site"],"m":20},
+        {"n":"getAssetAssignment","d":"資産の使用者を取得する。","p":{"!asset_id":"s:資産ID"},"f":["asset_id","assigned_to","assigned_at"],"m":1},
+        {"n":"listLicenses","d":"ソフトウェアライセンスの一覧を取得する。","p":{"vendor":"s:ベンダー名","expiring_only":"s:期限切れ間近のみに絞る場合は true"},"f":["license_id","product","seats","expires_at"],"m":20},
+        {"n":"getLicenseUsage","d":"ライセンスの使用状況を取得する。","p":{"!license_id":"s:ライセンスID"},"f":["license_id","seats","used_seats","expires_at"],"m":1},
+        {"n":"getAssetTotalValue","d":"区分ごとの資産総額を集計する。","p":{"category":"s:資産区分"},"f":["category","asset_count","total_book_value"],"m":20}
+      ]
+    },
+    {
+      "name": "notification",
+      "title": "通知サービス",
+      "description": "メール・SMS などの通知の配信履歴を管理する。テンプレートと配信結果を保持する。",
+      "responsibility": "通知の配信を扱う。通知の内容の元になる業務データは扱わない。",
+      "tools": [
+        {"n":"searchDeliveries","d":"宛先・チャネル・状態で配信履歴を検索する。","p":{"recipient":"s:宛先の部分一致","channel":"e:EMAIL|SMS|PUSH:配信チャネル","status":"e:QUEUED|SENT|FAILED|BOUNCED:配信の状態"},"f":["delivery_id","recipient","channel","status","sent_at"],"m":20},
+        {"n":"getDelivery","d":"配信IDを指定して詳細を取得する。","p":{"!delivery_id":"s:配信ID"},"f":["delivery_id","recipient","channel","status","sent_at","template_id"],"m":1},
+        {"n":"listTemplates","d":"通知テンプレートの一覧を取得する。","p":{"channel":"e:EMAIL|SMS|PUSH:配信チャネル"},"f":["template_id","name","channel","updated_at"],"m":20},
+        {"n":"getTemplate","d":"テンプレートIDを指定して内容を取得する。","p":{"!template_id":"s:テンプレートID"},"f":["template_id","name","channel","subject","updated_at"],"m":1},
+        {"n":"listFailedDeliveries","d":"配信に失敗した通知の一覧を取得する。","p":{"since":"s:対象日の下限 (YYYY-MM-DD)"},"f":["delivery_id","recipient","channel","error_code","sent_at"],"m":20},
+        {"n":"getDeliveryStats","d":"期間ごとの配信件数と到達率を集計する。","p":{"!period":"e:TODAY|THIS_WEEK|THIS_MONTH:集計期間","channel":"e:EMAIL|SMS|PUSH:配信チャネル"},"f":["period","channel","sent_count","delivered_rate"],"m":20},
+        {"n":"getSubscription","d":"宛先の受信設定（オプトイン状況）を取得する。","p":{"!recipient":"s:宛先"},"f":["recipient","email_opt_in","sms_opt_in","updated_at"],"m":1},
+        {"n":"listSuppressions","d":"配信停止リストの一覧を取得する。","p":{"reason":"s:停止理由"},"f":["recipient","reason","suppressed_at"],"m":20},
+        {"n":"listScheduled","d":"配信予定の通知の一覧を取得する。","p":{"scheduled_before":"s:配信予定日の上限 (YYYY-MM-DD)"},"f":["delivery_id","recipient","channel","scheduled_at"],"m":20},
+        {"n":"getBounceReason","d":"配信が弾かれた理由の詳細を取得する。","p":{"!delivery_id":"s:配信ID"},"f":["delivery_id","error_code","error_message","bounced_at"],"m":1}
+      ]
+    }
+  ]
+}

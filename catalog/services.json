@@ -1,0 +1,868 @@
+{
+  "version": "1",
+  "services": [
+    {
+      "name": "customer",
+      "title": "顧客サービス",
+      "description": "顧客のマスタ情報を管理する。氏名・連絡先・担当地域・与信区分を保持する。",
+      "responsibility": "顧客そのものの属性を扱う。注文の内容や請求の金額そのものは扱わない。",
+      "base_url": "http://127.0.0.1:9101",
+      "tools": [
+        {
+          "name": "customer.search",
+          "description": "氏名・メールアドレス・状態・地域で顧客を検索する。顧客IDが分からない場合の起点として使う。",
+          "http": {
+            "method": "GET",
+            "path": "/customers"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "氏名の部分一致。姓のみでもよい。"
+              },
+              "email": {
+                "type": "string",
+                "description": "メールアドレスの部分一致"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ACTIVE",
+                  "INACTIVE",
+                  "SUSPENDED"
+                ],
+                "description": "顧客の状態"
+              },
+              "region": {
+                "type": "string",
+                "enum": [
+                  "EAST",
+                  "WEST"
+                ],
+                "description": "担当地域"
+              }
+            },
+            "required": []
+          },
+          "projection": {
+            "data_path": "",
+            "list_path": "items",
+            "fields": [
+              "customer_id",
+              "name",
+              "region",
+              "status"
+            ],
+            "max_items": 10
+          }
+        },
+        {
+          "name": "customer.get",
+          "description": "顧客IDを指定して顧客の詳細を取得する。",
+          "http": {
+            "method": "GET",
+            "path": "/customers/{customer_id}"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "customer_id": {
+                "type": "string",
+                "description": "顧客ID"
+              }
+            },
+            "required": [
+              "customer_id"
+            ]
+          },
+          "projection": {
+            "data_path": "data",
+            "list_path": "",
+            "fields": [
+              "customer_id",
+              "name",
+              "email",
+              "phone",
+              "region",
+              "status",
+              "sales_rep",
+              "credit_rank"
+            ],
+            "max_items": 1
+          }
+        },
+        {
+          "name": "customer.listContacts",
+          "description": "顧客に紐づく担当者（窓口となる個人）の一覧を取得する。",
+          "http": {
+            "method": "GET",
+            "path": "/customers/{customer_id}/contacts"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "customer_id": {
+                "type": "string",
+                "description": "顧客ID"
+              }
+            },
+            "required": [
+              "customer_id"
+            ]
+          },
+          "projection": {
+            "data_path": "",
+            "list_path": "items",
+            "fields": [
+              "contact_id",
+              "name",
+              "role",
+              "email"
+            ],
+            "max_items": 10
+          }
+        },
+        {
+          "name": "customer.getCreditStatus",
+          "description": "顧客の与信区分と与信限度額を取得する。現在の未払い残高そのものは含まない（残高は billing.getOutstandingBalance）。",
+          "http": {
+            "method": "GET",
+            "path": "/customers/{customer_id}/credit"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "customer_id": {
+                "type": "string",
+                "description": "顧客ID"
+              }
+            },
+            "required": [
+              "customer_id"
+            ]
+          },
+          "projection": {
+            "data_path": "data",
+            "list_path": "",
+            "fields": [
+              "customer_id",
+              "credit_rank",
+              "credit_limit",
+              "reviewed_at"
+            ],
+            "max_items": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "order",
+      "title": "注文サービス",
+      "description": "注文の受注情報を管理する。注文の状態・明細・受注金額を保持する。",
+      "responsibility": "受注時点の情報を扱う。請求書の発行状況や入金状況は扱わない（それは billing）。配送の進捗も扱わない（それは shipping）。",
+      "base_url": "http://127.0.0.1:9102",
+      "tools": [
+        {
+          "name": "order.search",
+          "description": "顧客・注文状態・受注日で注文を検索する。「未発送の注文」のような配送前の注文を探す場合もここを使う（status=PLACED または CONFIRMED）。",
+          "http": {
+            "method": "GET",
+            "path": "/orders"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "customer_id": {
+                "type": "string",
+                "description": "顧客ID"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "PLACED",
+                  "CONFIRMED",
+                  "SHIPPED",
+                  "DELIVERED",
+                  "CANCELLED"
+                ],
+                "description": "注文の状態。PLACED=受注済 CONFIRMED=確定済 SHIPPED=出荷済 DELIVERED=配達済"
+              },
+              "ordered_from": {
+                "type": "string",
+                "description": "受注日の下限 (YYYY-MM-DD)"
+              },
+              "ordered_to": {
+                "type": "string",
+                "description": "受注日の上限 (YYYY-MM-DD)"
+              }
+            },
+            "required": []
+          },
+          "projection": {
+            "data_path": "",
+            "list_path": "items",
+            "fields": [
+              "order_id",
+              "customer_id",
+              "status",
+              "ordered_at",
+              "total_amount"
+            ],
+            "max_items": 20
+          }
+        },
+        {
+          "name": "order.get",
+          "description": "注文IDを指定して注文の詳細を取得する。",
+          "http": {
+            "method": "GET",
+            "path": "/orders/{order_id}"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "order_id": {
+                "type": "string",
+                "description": "注文ID"
+              }
+            },
+            "required": [
+              "order_id"
+            ]
+          },
+          "projection": {
+            "data_path": "data",
+            "list_path": "",
+            "fields": [
+              "order_id",
+              "customer_id",
+              "status",
+              "ordered_at",
+              "total_amount",
+              "item_count"
+            ],
+            "max_items": 1
+          }
+        },
+        {
+          "name": "order.listItems",
+          "description": "注文の明細行（商品・数量・単価）を取得する。",
+          "http": {
+            "method": "GET",
+            "path": "/orders/{order_id}/items"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "order_id": {
+                "type": "string",
+                "description": "注文ID"
+              }
+            },
+            "required": [
+              "order_id"
+            ]
+          },
+          "projection": {
+            "data_path": "",
+            "list_path": "items",
+            "fields": [
+              "product_id",
+              "product_name",
+              "quantity",
+              "unit_price"
+            ],
+            "max_items": 20
+          }
+        },
+        {
+          "name": "order.getSummary",
+          "description": "顧客の受注金額を期間で集計する。受注ベースの金額であり、請求済み・入金済みの金額ではない。",
+          "http": {
+            "method": "GET",
+            "path": "/orders/summary"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "customer_id": {
+                "type": "string",
+                "description": "顧客ID"
+              },
+              "period": {
+                "type": "string",
+                "enum": [
+                  "THIS_MONTH",
+                  "LAST_MONTH",
+                  "THIS_YEAR"
+                ],
+                "description": "集計期間"
+              }
+            },
+            "required": [
+              "customer_id",
+              "period"
+            ]
+          },
+          "projection": {
+            "data_path": "data",
+            "list_path": "",
+            "fields": [
+              "customer_id",
+              "period",
+              "order_count",
+              "total_amount"
+            ],
+            "max_items": 1
+          }
+        },
+        {
+          "name": "order.countByStatus",
+          "description": "顧客の注文を状態ごとに件数集計する。「どういう状況の注文が何件あるか」の俯瞰に使う。",
+          "http": {
+            "method": "GET",
+            "path": "/orders/count-by-status"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "customer_id": {
+                "type": "string",
+                "description": "顧客ID"
+              }
+            },
+            "required": [
+              "customer_id"
+            ]
+          },
+          "projection": {
+            "data_path": "",
+            "list_path": "items",
+            "fields": [
+              "status",
+              "count"
+            ],
+            "max_items": 10
+          }
+        }
+      ]
+    },
+    {
+      "name": "inventory",
+      "title": "在庫サービス",
+      "description": "商品マスタと倉庫ごとの在庫数を管理する。",
+      "responsibility": "商品と在庫を扱う。注文や顧客は扱わない。",
+      "base_url": "http://127.0.0.1:9103",
+      "tools": [
+        {
+          "name": "inventory.searchProducts",
+          "description": "商品名のキーワードやカテゴリで商品を検索する。商品IDが分からない場合の起点。",
+          "http": {
+            "method": "GET",
+            "path": "/products"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "keyword": {
+                "type": "string",
+                "description": "商品名の部分一致"
+              },
+              "category": {
+                "type": "string",
+                "description": "カテゴリ名"
+              }
+            },
+            "required": []
+          },
+          "projection": {
+            "data_path": "",
+            "list_path": "items",
+            "fields": [
+              "product_id",
+              "name",
+              "category",
+              "unit_price"
+            ],
+            "max_items": 10
+          }
+        },
+        {
+          "name": "inventory.getProduct",
+          "description": "商品IDを指定して商品の詳細を取得する。",
+          "http": {
+            "method": "GET",
+            "path": "/products/{product_id}"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "product_id": {
+                "type": "string",
+                "description": "商品ID"
+              }
+            },
+            "required": [
+              "product_id"
+            ]
+          },
+          "projection": {
+            "data_path": "data",
+            "list_path": "",
+            "fields": [
+              "product_id",
+              "name",
+              "category",
+              "unit_price",
+              "discontinued"
+            ],
+            "max_items": 1
+          }
+        },
+        {
+          "name": "inventory.getStock",
+          "description": "商品の在庫数を取得する。倉庫を指定しない場合は全倉庫分を返す。",
+          "http": {
+            "method": "GET",
+            "path": "/products/{product_id}/stock"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "product_id": {
+                "type": "string",
+                "description": "商品ID"
+              },
+              "warehouse_id": {
+                "type": "string",
+                "description": "倉庫ID。省略時は全倉庫。"
+              }
+            },
+            "required": [
+              "product_id"
+            ]
+          },
+          "projection": {
+            "data_path": "",
+            "list_path": "items",
+            "fields": [
+              "warehouse_id",
+              "warehouse_name",
+              "quantity",
+              "reserved"
+            ],
+            "max_items": 10
+          }
+        },
+        {
+          "name": "inventory.listWarehouses",
+          "description": "倉庫の一覧を取得する。",
+          "http": {
+            "method": "GET",
+            "path": "/warehouses"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          },
+          "projection": {
+            "data_path": "",
+            "list_path": "items",
+            "fields": [
+              "warehouse_id",
+              "name",
+              "region"
+            ],
+            "max_items": 10
+          }
+        },
+        {
+          "name": "inventory.listLowStock",
+          "description": "在庫が閾値を下回っている商品の一覧を取得する。",
+          "http": {
+            "method": "GET",
+            "path": "/stock/low"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "threshold": {
+                "type": "integer",
+                "description": "在庫数の閾値。省略時は 10。"
+              },
+              "warehouse_id": {
+                "type": "string",
+                "description": "倉庫ID。省略時は全倉庫。"
+              }
+            },
+            "required": []
+          },
+          "projection": {
+            "data_path": "",
+            "list_path": "items",
+            "fields": [
+              "product_id",
+              "product_name",
+              "warehouse_id",
+              "quantity"
+            ],
+            "max_items": 20
+          }
+        }
+      ]
+    },
+    {
+      "name": "shipping",
+      "title": "配送サービス",
+      "description": "出荷と配送の進捗を管理する。配送業者・追跡番号・配達予定日を保持する。",
+      "responsibility": "出荷後の物流の進捗を扱う。注文そのものの状態は扱わない（それは order）。",
+      "base_url": "http://127.0.0.1:9104",
+      "tools": [
+        {
+          "name": "shipping.getStatus",
+          "description": "注文IDを指定して、その注文の現在の配送状況を取得する。まだ出荷されていない場合は該当なしを返す。",
+          "http": {
+            "method": "GET",
+            "path": "/orders/{order_id}/shipment"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "order_id": {
+                "type": "string",
+                "description": "注文ID"
+              }
+            },
+            "required": [
+              "order_id"
+            ]
+          },
+          "projection": {
+            "data_path": "data",
+            "list_path": "",
+            "fields": [
+              "shipment_id",
+              "order_id",
+              "status",
+              "carrier",
+              "shipped_at"
+            ],
+            "max_items": 1
+          }
+        },
+        {
+          "name": "shipping.search",
+          "description": "配送状態や配送業者で出荷を検索する。",
+          "http": {
+            "method": "GET",
+            "path": "/shipments"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "order_id": {
+                "type": "string",
+                "description": "注文ID"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "PREPARING",
+                  "IN_TRANSIT",
+                  "DELIVERED",
+                  "FAILED"
+                ],
+                "description": "配送の状態"
+              },
+              "carrier": {
+                "type": "string",
+                "description": "配送業者コード"
+              }
+            },
+            "required": []
+          },
+          "projection": {
+            "data_path": "",
+            "list_path": "items",
+            "fields": [
+              "shipment_id",
+              "order_id",
+              "status",
+              "carrier"
+            ],
+            "max_items": 20
+          }
+        },
+        {
+          "name": "shipping.getTracking",
+          "description": "出荷IDを指定して、追跡イベントの履歴（いつどこを通過したか）を取得する。",
+          "http": {
+            "method": "GET",
+            "path": "/shipments/{shipment_id}/tracking"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "shipment_id": {
+                "type": "string",
+                "description": "出荷ID"
+              }
+            },
+            "required": [
+              "shipment_id"
+            ]
+          },
+          "projection": {
+            "data_path": "",
+            "list_path": "items",
+            "fields": [
+              "occurred_at",
+              "location",
+              "event"
+            ],
+            "max_items": 10
+          }
+        },
+        {
+          "name": "shipping.listCarriers",
+          "description": "利用可能な配送業者の一覧を取得する。",
+          "http": {
+            "method": "GET",
+            "path": "/carriers"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          },
+          "projection": {
+            "data_path": "",
+            "list_path": "items",
+            "fields": [
+              "carrier",
+              "name"
+            ],
+            "max_items": 10
+          }
+        },
+        {
+          "name": "shipping.getDeliveryEstimate",
+          "description": "注文IDを指定して、配達予定日を取得する。現在どこにあるかではなく「いつ届くか」を答える場合に使う。",
+          "http": {
+            "method": "GET",
+            "path": "/orders/{order_id}/shipment/estimate"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "order_id": {
+                "type": "string",
+                "description": "注文ID"
+              }
+            },
+            "required": [
+              "order_id"
+            ]
+          },
+          "projection": {
+            "data_path": "data",
+            "list_path": "",
+            "fields": [
+              "order_id",
+              "estimated_at",
+              "confidence"
+            ],
+            "max_items": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "billing",
+      "title": "請求サービス",
+      "description": "請求書の発行と入金の状況を管理する。未払い金額や滞留を保持する。",
+      "responsibility": "請求と入金を扱う。受注金額そのものは扱わない（それは order.getSummary）。",
+      "base_url": "http://127.0.0.1:9105",
+      "tools": [
+        {
+          "name": "billing.searchInvoices",
+          "description": "顧客・請求状態・発行日で請求書を検索する。",
+          "http": {
+            "method": "GET",
+            "path": "/invoices"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "customer_id": {
+                "type": "string",
+                "description": "顧客ID"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ISSUED",
+                  "PAID",
+                  "OVERDUE",
+                  "VOID"
+                ],
+                "description": "請求書の状態。ISSUED=発行済 PAID=入金済 OVERDUE=支払期限超過"
+              },
+              "issued_from": {
+                "type": "string",
+                "description": "発行日の下限 (YYYY-MM-DD)"
+              },
+              "issued_to": {
+                "type": "string",
+                "description": "発行日の上限 (YYYY-MM-DD)"
+              }
+            },
+            "required": []
+          },
+          "projection": {
+            "data_path": "",
+            "list_path": "items",
+            "fields": [
+              "invoice_id",
+              "customer_id",
+              "status",
+              "issued_at",
+              "due_at",
+              "amount"
+            ],
+            "max_items": 20
+          }
+        },
+        {
+          "name": "billing.getInvoice",
+          "description": "請求書IDを指定して請求書の詳細を取得する。",
+          "http": {
+            "method": "GET",
+            "path": "/invoices/{invoice_id}"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "invoice_id": {
+                "type": "string",
+                "description": "請求書ID"
+              }
+            },
+            "required": [
+              "invoice_id"
+            ]
+          },
+          "projection": {
+            "data_path": "data",
+            "list_path": "",
+            "fields": [
+              "invoice_id",
+              "customer_id",
+              "order_id",
+              "status",
+              "issued_at",
+              "due_at",
+              "amount"
+            ],
+            "max_items": 1
+          }
+        },
+        {
+          "name": "billing.getPaymentStatus",
+          "description": "請求書の入金状況（入金済み額・残額・入金日）を取得する。",
+          "http": {
+            "method": "GET",
+            "path": "/invoices/{invoice_id}/payment"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "invoice_id": {
+                "type": "string",
+                "description": "請求書ID"
+              }
+            },
+            "required": [
+              "invoice_id"
+            ]
+          },
+          "projection": {
+            "data_path": "data",
+            "list_path": "",
+            "fields": [
+              "invoice_id",
+              "paid_amount",
+              "remaining_amount",
+              "paid_at"
+            ],
+            "max_items": 1
+          }
+        },
+        {
+          "name": "billing.listUnpaid",
+          "description": "未払いの請求書（ISSUED または OVERDUE）の一覧を取得する。「支払われていない」「滞留している」といった要求はここを使う。注文の未発送とは別物。",
+          "http": {
+            "method": "GET",
+            "path": "/invoices/unpaid"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "customer_id": {
+                "type": "string",
+                "description": "顧客ID。省略時は全顧客。"
+              }
+            },
+            "required": []
+          },
+          "projection": {
+            "data_path": "",
+            "list_path": "items",
+            "fields": [
+              "invoice_id",
+              "customer_id",
+              "status",
+              "due_at",
+              "amount"
+            ],
+            "max_items": 20
+          }
+        },
+        {
+          "name": "billing.getOutstandingBalance",
+          "description": "顧客の未払い残高の合計金額を取得する。与信「限度額」ではなく、実際に今いくら未払いかを答える場合に使う。",
+          "http": {
+            "method": "GET",
+            "path": "/customers/{customer_id}/balance"
+          },
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "customer_id": {
+                "type": "string",
+                "description": "顧客ID"
+              }
+            },
+            "required": [
+              "customer_id"
+            ]
+          },
+          "projection": {
+            "data_path": "data",
+            "list_path": "",
+            "fields": [
+              "customer_id",
+              "outstanding_amount",
+              "overdue_amount",
+              "invoice_count"
+            ],
+            "max_items": 1
+          }
+        }
+      ]
+    }
+  ]
+}

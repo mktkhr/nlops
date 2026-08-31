@@ -1,0 +1,33 @@
+{
+  "version": "1",
+  "note": "PoC の権限差検証用モデル。各モックサービスは authctx の role/scope を見て絞り込むか 403 を返す。",
+  "roles": [
+    {
+      "name": "admin",
+      "description": "全サービス・全レコードを参照できる",
+      "service_access": { "customer": "all", "order": "all", "inventory": "all", "shipping": "all", "billing": "all" }
+    },
+    {
+      "name": "sales",
+      "description": "担当地域の顧客と、その顧客に紐づく注文・配送・請求のみ参照できる。在庫は全件参照できる。",
+      "service_access": { "customer": "region", "order": "region", "inventory": "all", "shipping": "region", "billing": "region" }
+    },
+    {
+      "name": "warehouse",
+      "description": "在庫のみ参照できる。顧客・注文・配送・請求は参照できない。",
+      "service_access": { "customer": "deny", "order": "deny", "inventory": "all", "shipping": "deny", "billing": "deny" }
+    },
+    {
+      "name": "support",
+      "description": "顧客・注文・配送・在庫は全件参照できる。請求は参照できない。",
+      "service_access": { "customer": "all", "order": "all", "inventory": "all", "shipping": "all", "billing": "deny" }
+    }
+  ],
+  "users": [
+    { "user_id": "u_admin", "name": "管理者", "role": "admin", "region": null, "warehouse_id": null },
+    { "user_id": "u_sales_e", "name": "東日本営業", "role": "sales", "region": "EAST", "warehouse_id": null },
+    { "user_id": "u_sales_w", "name": "西日本営業", "role": "sales", "region": "WEST", "warehouse_id": null },
+    { "user_id": "u_wh", "name": "東京倉庫", "role": "warehouse", "region": null, "warehouse_id": "WH_TOKYO" },
+    { "user_id": "u_support", "name": "サポート", "role": "support", "region": null, "warehouse_id": null }
+  ]
+}

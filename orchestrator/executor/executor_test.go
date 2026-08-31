@@ -1,0 +1,163 @@
+package executor
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"github.com/mktkhr/nlops/pkg/toolschema"
+)
+
+func testTool() toolschema.Tool {
+	return toolschema.Tool{
+		Name: "order.search",
+		HTTP: toolschema.HTTPBinder{Method: "GET", Path: "/orders"},
+		Parameters: toolschema.Schema{
+			Type: "object",
+			Properties: map[string]*toolschema.Schema{
+				"customer_id": {Type: "string"},
+				"status":      {Type: "string", Enum: []string{"PLACED", "SHIPPED"}},
+			},
+		},
+	}
+}
+
+func TestInvalidEnums(t *testing.T) {
+	tool := testTool()
+	tests := []struct {
+		name    string
+		args    map[string]any
+		wantBad bool
+	}{
+		{"候補内なら通す", map[string]any{"status": "PLACED"}, false},
+		{"候補外は差し戻す", map[string]any{"status": "UNSHIPPED"}, true},
+		{"enum のない引数は見ない", map[string]any{"customer_id": "なんでも"}, false},
+		{"大文字小文字は区別する", map[string]any{"status": "placed"}, true},
+		{"引数なしなら通す", map[string]any{}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := invalidEnums(tool, tt.args)
+			if (len(got) > 0) != tt.wantBad {
+				t.Fatalf("invalidEnums(%v) = %v, 差し戻し期待=%v", tt.args, got, tt.wantBad)
+			}
+		})
+	}
+}
+
+func TestUnresolvedIDs(t *testing.T) {
+	e := New(nil)
+	e.Reset("注文 O-1001 の状況を教えて")
+
+	if bad := e.unresolvedIDs(map[string]any{"order_id": "O-1001"}); len(bad) != 0 {
+		t.Errorf("ユーザー入力に現れた ID は通すべき: %v", bad)
+	}
+	if bad := e.unresolvedIDs(map[string]any{"customer_id": "CUST-999"}); len(bad) != 1 {
+		t.Errorf("どこにも現れていない ID は差し戻すべき: %v", bad)
+	}
+	// Tool 結果に現れた ID は以後既知として扱う。
+	e.recordIDs(map[string]any{"items": []any{map[string]any{"customer_id": "C001"}}})
+	if bad := e.unresolvedIDs(map[string]any{"customer_id": "C001"}); len(bad) != 0 {
+		t.Errorf("Tool 結果に現れた ID は通すべき: %v", bad)
+	}
+	// ID でない引数は対象外。
+	if bad := e.unresolvedIDs(map[string]any{"name": "田中"}); len(bad) != 0 {
+		t.Errorf("ID 以外の引数は見るべきでない: %v", bad)
+	}
+}
+
+func TestProject(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		proj toolschema.Projection
+		want string
+	}{
+		{
+			name: "一覧: whitelist で絞り max_items で切る",
+			body: `{"items":[{"a":1,"junk":"x"},{"a":2,"junk":"y"},{"a":3}],"count":3,"meta":{"trace_id":"t"}}`,
+			proj: toolschema.Projection{ListPath: "items", Fields: []string{"a"}, MaxItems: 2},
+			want: `{"count":3,"items":[{"a":1},{"a":2}],"shown":2,"truncated":true}`,
+		},
+		{
+			name: "単一: data_path を辿って whitelist で絞る",
+			body: `{"data":{"a":1,"junk":"x","_links":{"self":"/x"}},"meta":{"trace_id":"t"}}`,
+			proj: toolschema.Projection{DataPath: "data", Fields: []string{"a"}, MaxItems: 1},
+			want: `{"a":1}`,
+		},
+		{
+			name: "件数が max_items 以下なら truncated を付けない",
+			body: `{"items":[{"a":1}],"count":1}`,
+			proj: toolschema.Projection{ListPath: "items", Fields: []string{"a"}, MaxItems: 5},
+			want: `{"count":1,"items":[{"a":1}]}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var body any
+			if err := json.Unmarshal([]byte(tt.body), &body); err != nil {
+				t.Fatal(err)
+			}
+			got, err := json.Marshal(project(body, tt.proj))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tt.want {
+				t.Errorf("project() = %s\n期待 = %s", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildURL(t *testing.T) {
+	pathTool := toolschema.Tool{
+		HTTP: toolschema.HTTPBinder{Method: "GET", Path: "/customers/{customer_id}/credit"},
+	}
+	got, err := buildURL("http://x", pathTool, map[string]any{"customer_id": "C001"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "http://x/customers/C001/credit" {
+		t.Errorf("パスパラメータの展開が違う: %s", got)
+	}
+
+	// パスに使われなかった引数はクエリ文字列へ回す。
+	got, err = buildURL("http://x", testTool(), map[string]any{"status": "PLACED", "customer_id": "C001"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "http://x/orders?customer_id=C001&status=PLACED" {
+		t.Errorf("クエリ文字列の組み立てが違う: %s", got)
+	}
+
+	// 必須のパスパラメータが無ければエラーにする (URL を組み立てない)。
+	if _, err = buildURL("http://x", pathTool, map[string]any{}); err == nil {
+		t.Error("パスパラメータ未指定はエラーにすべき")
+	}
+}
+
+func TestSanitizeArgs(t *testing.T) {
+	e := New(nil)
+	got := e.sanitizeArgs(testTool(), map[string]any{
+		"status":      "PLACED",
+		"unknown_arg": "捏造された引数",
+		"customer_id": "",
+		"nil_arg":     nil,
+	})
+	if len(got) != 1 || got["status"] != "PLACED" {
+		t.Errorf("定義外・空・nil の引数は落とすべき: %v", got)
+	}
+}
+
+func TestErrorMessagesAreActionable(t *testing.T) {
+	// 差し戻しメッセージは LLM が次の行動を決められる内容でなければならない。
+	bad := invalidEnums(testTool(), map[string]any{"status": "UNSHIPPED"})
+	if len(bad) != 1 {
+		t.Fatalf("差し戻しが 1 件のはず: %v", bad)
+	}
+	for _, want := range []string{"UNSHIPPED", "PLACED", "SHIPPED"} {
+		if !strings.Contains(bad[0], want) {
+			t.Errorf("メッセージに %q が含まれるべき: %s", want, bad[0])
+		}
+	}
+}
