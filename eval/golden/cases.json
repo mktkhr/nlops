@@ -1,6 +1,6 @@
 {
-  "version": "1",
-  "note": "採点は「最終回答の文字列一致」ではなく、Service routing / 初手 Tool / 初手 args / 実行 Tool 列 で行う。args の match は equals | contains | one_of。",
+  "version": "2",
+  "note": "採点は「最終回答の文字列一致」ではなく、Service routing / 初手 Tool / 初手 args / 実行 Tool 列 / 権限差 / 画面遷移 / ステップ数 で行う。args と filters の match は equals | contains | one_of。max_steps は過剰探索を検出するための上限。",
   "cases": [
     {
       "id": "A01",
@@ -21,10 +21,20 @@
           }
         }
       },
-      "required_tools": [
-        "customer.search"
-      ],
-      "forbidden_tools": []
+      "required_tools": [],
+      "forbidden_tools": [],
+      "note": "画面のフィルタで表現でき「一覧で見せて」と求めているので、遷移が正しい。",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/customers",
+        "filters": {
+          "region": {
+            "match": "equals",
+            "value": "EAST"
+          }
+        }
+      }
     },
     {
       "id": "A02",
@@ -332,7 +342,7 @@
       "id": "C01",
       "category": "cross_service",
       "user_id": "u_admin",
-      "query": "田中太郎さんの未発送の注文を確認したい",
+      "query": "田中太郎さんの未発送の注文は何件で合計いくらですか",
       "expected_services": [
         "customer",
         "order"
@@ -354,7 +364,11 @@
       ],
       "forbidden_tools": [
         "billing.listUnpaid"
-      ]
+      ],
+      "note": "多段の Tool 経路を測るケース。画面で表現できる文言だと遷移してしまうため、値を問う形にする。",
+      "navigate": {
+        "expected": false
+      }
     },
     {
       "id": "C02",
@@ -774,7 +788,7 @@
       "category": "ambiguity",
       "user_id": "u_admin",
       "query": "まだ出荷されていない注文を出して",
-      "note": "出荷前の注文は order.search。shipping には存在しない。",
+      "note": "未発送は PLACED / CONFIRMED。画面で表現できるので遷移が正しい。",
       "expected_services": [
         "order"
       ],
@@ -784,13 +798,25 @@
         ],
         "args": {}
       },
-      "required_tools": [
-        "order.search"
-      ],
+      "required_tools": [],
       "forbidden_tools": [
         "shipping.search",
         "billing.listUnpaid"
-      ]
+      ],
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/orders",
+        "filters": {
+          "status": {
+            "match": "one_of",
+            "value": [
+              "PLACED",
+              "CONFIRMED"
+            ]
+          }
+        }
+      }
     },
     {
       "id": "D08",
@@ -822,8 +848,8 @@
       "id": "E01",
       "category": "permission",
       "user_id": "u_sales_e",
-      "query": "田中という名前の顧客を探して",
-      "note": "EAST営業。田中太郎(EAST)は見えるが田中次郎(WEST)は見えない。",
+      "query": "田中という名前の顧客は誰がいますか",
+      "note": "同名の顧客が地域で分かれるケース。画面遷移で答えても正しいので Tool は必須にしない。権限は遷移先の画面を実際に開いて確かめる。",
       "expected_services": [
         "customer"
       ],
@@ -838,9 +864,7 @@
           }
         }
       },
-      "required_tools": [
-        "customer.search"
-      ],
+      "required_tools": [],
       "forbidden_tools": [],
       "permission": {
         "must_include_ids": [
@@ -855,8 +879,8 @@
       "id": "E02",
       "category": "permission",
       "user_id": "u_sales_w",
-      "query": "田中という名前の顧客を探して",
-      "note": "WEST営業。田中次郎(WEST)は見えるが田中太郎(EAST)は見えない。",
+      "query": "田中という名前の顧客は誰がいますか",
+      "note": "同名の顧客が地域で分かれるケース。画面遷移で答えても正しいので Tool は必須にしない。権限は遷移先の画面を実際に開いて確かめる。",
       "expected_services": [
         "customer"
       ],
@@ -871,9 +895,7 @@
           }
         }
       },
-      "required_tools": [
-        "customer.search"
-      ],
+      "required_tools": [],
       "forbidden_tools": [],
       "permission": {
         "must_include_ids": [
@@ -888,8 +910,8 @@
       "id": "E03",
       "category": "permission",
       "user_id": "u_admin",
-      "query": "田中という名前の顧客を探して",
-      "note": "管理者。両方見える。",
+      "query": "田中という名前の顧客は誰がいますか",
+      "note": "同名の顧客が地域で分かれるケース。画面遷移で答えても正しいので Tool は必須にしない。権限は遷移先の画面を実際に開いて確かめる。",
       "expected_services": [
         "customer"
       ],
@@ -904,9 +926,7 @@
           }
         }
       },
-      "required_tools": [
-        "customer.search"
-      ],
+      "required_tools": [],
       "forbidden_tools": [],
       "permission": {
         "must_include_ids": [
@@ -1044,6 +1064,1812 @@
           "C004",
           "C005",
           "C006"
+        ]
+      }
+    },
+    {
+      "id": "N01",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "西日本の顧客の一覧を開いて",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/customers",
+        "filters": {
+          "region": {
+            "match": "equals",
+            "value": "WEST"
+          }
+        }
+      }
+    },
+    {
+      "id": "N02",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "東日本の顧客一覧を表示して",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/customers",
+        "filters": {
+          "region": {
+            "match": "equals",
+            "value": "EAST"
+          }
+        }
+      }
+    },
+    {
+      "id": "N03",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "顧客の一覧画面を見せて",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/customers"
+      }
+    },
+    {
+      "id": "N04",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "田中という名前の顧客の一覧を画面で見たい",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/customers",
+        "filters": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      }
+    },
+    {
+      "id": "N05",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "注文の一覧画面を開いて",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/orders"
+      }
+    },
+    {
+      "id": "N06",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "未発送の注文を一覧で見せて",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/orders",
+        "filters": {
+          "status": {
+            "match": "one_of",
+            "value": [
+              "PLACED",
+              "CONFIRMED"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "N07",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "出荷済みの注文一覧を表示して",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/orders",
+        "filters": {
+          "status": {
+            "match": "equals",
+            "value": "SHIPPED"
+          }
+        }
+      }
+    },
+    {
+      "id": "N08",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "配達済みの注文を画面で確認したい",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/orders",
+        "filters": {
+          "status": {
+            "match": "equals",
+            "value": "DELIVERED"
+          }
+        }
+      }
+    },
+    {
+      "id": "N09",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "キャンセルされた注文の一覧を開いて",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/orders",
+        "filters": {
+          "status": {
+            "match": "equals",
+            "value": "CANCELLED"
+          }
+        }
+      }
+    },
+    {
+      "id": "N10",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "田中太郎さんの注文を画面で見せて",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/orders",
+        "filters": {
+          "customer_name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      }
+    },
+    {
+      "id": "N11",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "高橋みどりさんの注文一覧を開いて",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/orders",
+        "filters": {
+          "customer_name": {
+            "match": "contains",
+            "value": "高橋"
+          }
+        }
+      }
+    },
+    {
+      "id": "N12",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "佐藤花子さんの注文を一覧で見たい",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/orders",
+        "filters": {
+          "customer_name": {
+            "match": "contains",
+            "value": "佐藤"
+          }
+        }
+      }
+    },
+    {
+      "id": "N13",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "鈴木一郎さんの配達済み注文を画面で見せて",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/orders",
+        "filters": {
+          "customer_name": {
+            "match": "contains",
+            "value": "鈴木"
+          },
+          "status": {
+            "match": "equals",
+            "value": "DELIVERED"
+          }
+        }
+      }
+    },
+    {
+      "id": "N14",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "田中次郎さんの出荷済みの注文一覧を表示",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/orders",
+        "filters": {
+          "customer_name": {
+            "match": "contains",
+            "value": "田中"
+          },
+          "status": {
+            "match": "equals",
+            "value": "SHIPPED"
+          }
+        }
+      }
+    },
+    {
+      "id": "N15",
+      "category": "navigate",
+      "user_id": "u_sales_e",
+      "query": "担当している顧客の一覧を開いて",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/customers"
+      }
+    },
+    {
+      "id": "N16",
+      "category": "navigate",
+      "user_id": "u_sales_w",
+      "query": "注文一覧の画面を出して",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/orders"
+      }
+    },
+    {
+      "id": "N17",
+      "category": "navigate",
+      "user_id": "u_support",
+      "query": "伊藤健さんの注文を画面で見たい",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/orders",
+        "filters": {
+          "customer_name": {
+            "match": "contains",
+            "value": "伊藤"
+          }
+        }
+      }
+    },
+    {
+      "id": "N18",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "受注済みの注文の画面を開いてください",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/orders",
+        "filters": {
+          "status": {
+            "match": "one_of",
+            "value": [
+              "PLACED",
+              "CONFIRMED"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "N19",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "高橋という顧客を一覧画面で探したい",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/customers",
+        "filters": {
+          "name": {
+            "match": "contains",
+            "value": "高橋"
+          }
+        }
+      }
+    },
+    {
+      "id": "N20",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "西日本の顧客のうち伊藤さんを画面で見せて",
+      "max_steps": 2,
+      "navigate": {
+        "expected": true,
+        "route": "/customers",
+        "filters": {
+          "name": {
+            "match": "contains",
+            "value": "伊藤"
+          }
+        }
+      }
+    },
+    {
+      "id": "N21",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "田中太郎さんの未払い残高はいくらですか",
+      "note": "特定の値を答える要求。遷移してはいけない。",
+      "navigate": {
+        "expected": false
+      },
+      "required_tools": [
+        "billing.getOutstandingBalance"
+      ]
+    },
+    {
+      "id": "N22",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "在庫が5個を下回っている商品を出して",
+      "note": "在庫画面は存在しないので遷移できない。Tool を使う。",
+      "navigate": {
+        "expected": false
+      },
+      "required_tools": [
+        "inventory.listLowStock"
+      ]
+    },
+    {
+      "id": "N23",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "田中太郎さんの注文は何件ありますか",
+      "note": "件数を答える要求。遷移してはいけない。",
+      "navigate": {
+        "expected": false
+      }
+    },
+    {
+      "id": "N24",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "注文 O-1001 の配送状況を教えて",
+      "note": "配送画面は存在しない。Tool を使う。",
+      "navigate": {
+        "expected": false
+      },
+      "required_tools": [
+        "shipping.getStatus"
+      ]
+    },
+    {
+      "id": "N25",
+      "category": "navigate",
+      "user_id": "u_admin",
+      "query": "使える配送業者を教えて",
+      "note": "該当する画面が無い。Tool を使う。",
+      "navigate": {
+        "expected": false
+      },
+      "required_tools": [
+        "shipping.listCarriers"
+      ]
+    },
+    {
+      "id": "X01",
+      "category": "exploration",
+      "user_id": "u_admin",
+      "query": "山田さんの注文を確認したい",
+      "max_steps": 4,
+      "note": "該当する顧客が存在しない。空振りで探し回らないこと。",
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "山田"
+          }
+        }
+      }
+    },
+    {
+      "id": "X02",
+      "category": "exploration",
+      "user_id": "u_admin",
+      "query": "渡辺という顧客の未払いを調べて",
+      "max_steps": 4,
+      "note": "該当なし。",
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "渡辺"
+          }
+        }
+      }
+    },
+    {
+      "id": "X03",
+      "category": "exploration",
+      "user_id": "u_admin",
+      "query": "注文 O-9999 の明細を見せて",
+      "max_steps": 3,
+      "note": "存在しない注文ID。",
+      "forbidden_tools": [
+        "customer.search"
+      ]
+    },
+    {
+      "id": "X04",
+      "category": "exploration",
+      "user_id": "u_admin",
+      "query": "請求書 INV-9999 の入金状況を教えて",
+      "max_steps": 3,
+      "note": "存在しない請求書ID。"
+    },
+    {
+      "id": "X05",
+      "category": "exploration",
+      "user_id": "u_admin",
+      "query": "プリンターという商品の在庫を教えて",
+      "max_steps": 4,
+      "note": "該当商品が存在しない。",
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.searchProducts"
+        ],
+        "args": {
+          "keyword": {
+            "match": "contains",
+            "value": "プリンター"
+          }
+        }
+      }
+    },
+    {
+      "id": "X06",
+      "category": "exploration",
+      "user_id": "u_admin",
+      "query": "伊藤健さんに未払いの請求はありますか",
+      "max_steps": 5,
+      "note": "C006 の請求は PAID のみ。未払いは 0 件。",
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "伊藤"
+          }
+        }
+      }
+    },
+    {
+      "id": "X07",
+      "category": "exploration",
+      "user_id": "u_admin",
+      "query": "注文 O-1006 の配送状況を教えて",
+      "max_steps": 3,
+      "note": "キャンセル済みで出荷が存在しない。",
+      "first_call": {
+        "acceptable_tools": [
+          "shipping.getStatus",
+          "order.get"
+        ],
+        "args": {}
+      }
+    },
+    {
+      "id": "X08",
+      "category": "exploration",
+      "user_id": "u_admin",
+      "query": "注文 O-1002 の追跡履歴を見せて",
+      "max_steps": 4,
+      "note": "未出荷なので追跡イベントが無い。"
+    },
+    {
+      "id": "X09",
+      "category": "exploration",
+      "user_id": "u_admin",
+      "query": "ウェブカメラの在庫はいくつありますか",
+      "max_steps": 4,
+      "note": "P006 は全倉庫で 0。数量 0 を「見つからない」と混同しないこと。",
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.searchProducts"
+        ],
+        "args": {
+          "keyword": {
+            "match": "contains",
+            "value": "ウェブカメラ"
+          }
+        }
+      },
+      "required_tools": [
+        "inventory.searchProducts"
+      ]
+    },
+    {
+      "id": "X10",
+      "category": "exploration",
+      "user_id": "u_admin",
+      "query": "在庫が0個の商品を出して",
+      "max_steps": 3,
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.listLowStock"
+        ],
+        "args": {
+          "threshold": {
+            "match": "equals",
+            "value": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "X11",
+      "category": "exploration",
+      "user_id": "u_admin",
+      "query": "2020年に受注した注文を見せて",
+      "max_steps": 3,
+      "note": "該当期間に注文が無い。",
+      "first_call": {
+        "acceptable_tools": [
+          "order.search"
+        ],
+        "args": {}
+      }
+    },
+    {
+      "id": "X12",
+      "category": "exploration",
+      "user_id": "u_admin",
+      "query": "配送業者に佐川を使った出荷を探して",
+      "max_steps": 4,
+      "first_call": {
+        "acceptable_tools": [
+          "shipping.search",
+          "shipping.listCarriers"
+        ],
+        "args": {}
+      }
+    },
+    {
+      "id": "X13",
+      "category": "exploration",
+      "user_id": "u_sales_w",
+      "query": "佐藤花子さんの注文を確認したい",
+      "max_steps": 4,
+      "note": "C002 は EAST。西日本営業には見えないので空振りになる。",
+      "permission": {
+        "must_exclude_ids": [
+          "C002"
+        ]
+      }
+    },
+    {
+      "id": "X14",
+      "category": "exploration",
+      "user_id": "u_admin",
+      "query": "利用停止中の顧客の未払いを全部調べて",
+      "max_steps": 6,
+      "note": "C003 のみ。多段になるが探し回らないこと。",
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "status": {
+            "match": "equals",
+            "value": "SUSPENDED"
+          }
+        }
+      }
+    },
+    {
+      "id": "X15",
+      "category": "exploration",
+      "user_id": "u_admin",
+      "query": "大阪倉庫にある27インチモニタの在庫数を教えて",
+      "max_steps": 5,
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.searchProducts",
+          "inventory.listWarehouses"
+        ],
+        "args": {}
+      },
+      "required_tools": [
+        "inventory.getStock"
+      ]
+    },
+    {
+      "id": "A09",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "西日本担当の顧客を出して",
+      "max_steps": 2,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "region": {
+            "match": "equals",
+            "value": "WEST"
+          }
+        }
+      },
+      "required_tools": [],
+      "navigate": {
+        "expected": true,
+        "route": "/customers",
+        "filters": {
+          "region": {
+            "match": "equals",
+            "value": "WEST"
+          }
+        }
+      },
+      "note": "/customers?region=WEST で完全に表現でき「出して」と一覧を求めているので遷移が正しい。初版で navigate を禁止していたのは設定ミス。"
+    },
+    {
+      "id": "A10",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "取引を停止していない顧客は何人いますか",
+      "max_steps": 3,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "status": {
+            "match": "equals",
+            "value": "ACTIVE"
+          }
+        }
+      }
+    },
+    {
+      "id": "A11",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "ディスプレイのカテゴリの商品を教えて",
+      "max_steps": 3,
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.searchProducts"
+        ],
+        "args": {
+          "category": {
+            "match": "contains",
+            "value": "ディスプレイ"
+          }
+        }
+      }
+    },
+    {
+      "id": "A12",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "東京倉庫で在庫が10個以下の商品を出して",
+      "max_steps": 4,
+      "required_tools": [
+        "inventory.listLowStock"
+      ]
+    },
+    {
+      "id": "A13",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "配送に失敗した出荷を全部見せて",
+      "max_steps": 3,
+      "first_call": {
+        "acceptable_tools": [
+          "shipping.search"
+        ],
+        "args": {
+          "status": {
+            "match": "equals",
+            "value": "FAILED"
+          }
+        }
+      }
+    },
+    {
+      "id": "A14",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "輸送中の荷物を一覧して",
+      "max_steps": 3,
+      "first_call": {
+        "acceptable_tools": [
+          "shipping.search"
+        ],
+        "args": {
+          "status": {
+            "match": "equals",
+            "value": "IN_TRANSIT"
+          }
+        }
+      }
+    },
+    {
+      "id": "A15",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "出荷準備中のものはありますか",
+      "max_steps": 3,
+      "first_call": {
+        "acceptable_tools": [
+          "shipping.search"
+        ],
+        "args": {
+          "status": {
+            "match": "equals",
+            "value": "PREPARING"
+          }
+        }
+      }
+    },
+    {
+      "id": "A16",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "入金が済んでいる請求書を出して",
+      "max_steps": 3,
+      "first_call": {
+        "acceptable_tools": [
+          "billing.searchInvoices"
+        ],
+        "args": {
+          "status": {
+            "match": "equals",
+            "value": "PAID"
+          }
+        }
+      }
+    },
+    {
+      "id": "A17",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "注文 O-1001 の明細を見せて",
+      "max_steps": 3,
+      "first_call": {
+        "acceptable_tools": [
+          "order.listItems",
+          "order.get"
+        ],
+        "args": {
+          "order_id": {
+            "match": "contains",
+            "value": "O-1001"
+          }
+        }
+      },
+      "required_tools": [
+        "order.listItems"
+      ]
+    },
+    {
+      "id": "A18",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "顧客 C002 の詳細を教えて",
+      "max_steps": 3,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.get"
+        ],
+        "args": {
+          "customer_id": {
+            "match": "equals",
+            "value": "C002"
+          }
+        }
+      }
+    },
+    {
+      "id": "A19",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "出荷 S-3001 がどこを通ったか教えて",
+      "max_steps": 3,
+      "first_call": {
+        "acceptable_tools": [
+          "shipping.getTracking"
+        ],
+        "args": {
+          "shipment_id": {
+            "match": "contains",
+            "value": "S-3001"
+          }
+        }
+      },
+      "required_tools": [
+        "shipping.getTracking"
+      ]
+    },
+    {
+      "id": "A20",
+      "category": "single_tool",
+      "user_id": "u_admin",
+      "query": "商品 P003 の単価はいくらですか",
+      "max_steps": 3,
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.getProduct"
+        ],
+        "args": {
+          "product_id": {
+            "match": "equals",
+            "value": "P003"
+          }
+        }
+      }
+    },
+    {
+      "id": "B07",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "田中次郎さんの経理担当者を教えて",
+      "max_steps": 4,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search",
+        "customer.listContacts"
+      ]
+    },
+    {
+      "id": "B08",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "伊藤健さんの与信限度額を確認したい",
+      "max_steps": 4,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "伊藤"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.getCreditStatus"
+      ],
+      "forbidden_tools": [
+        "billing.getOutstandingBalance"
+      ]
+    },
+    {
+      "id": "B09",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "USB-Cハブの在庫を倉庫ごとに教えて",
+      "max_steps": 4,
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.searchProducts"
+        ],
+        "args": {
+          "keyword": {
+            "match": "contains",
+            "value": "USB"
+          }
+        }
+      },
+      "required_tools": [
+        "inventory.searchProducts",
+        "inventory.getStock"
+      ]
+    },
+    {
+      "id": "B10",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "ノートPCスタンドの在庫はどれくらいありますか",
+      "max_steps": 4,
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.searchProducts"
+        ],
+        "args": {
+          "keyword": {
+            "match": "contains",
+            "value": "スタンド"
+          }
+        }
+      },
+      "required_tools": [
+        "inventory.searchProducts",
+        "inventory.getStock"
+      ]
+    },
+    {
+      "id": "B11",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "佐藤花子さんの今年の受注金額を教えて",
+      "max_steps": 4,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "佐藤"
+          }
+        }
+      },
+      "required_tools": [
+        "order.getSummary"
+      ],
+      "forbidden_tools": [
+        "billing.searchInvoices"
+      ]
+    },
+    {
+      "id": "B12",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "田中次郎さんの注文の状態別の件数を出して",
+      "max_steps": 4,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [
+        "order.countByStatus"
+      ]
+    },
+    {
+      "id": "B13",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "注文 O-1008 の出荷はどの業者ですか",
+      "max_steps": 3,
+      "required_tools": [
+        "shipping.getStatus"
+      ]
+    },
+    {
+      "id": "B14",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "請求書 INV-2003 の残額はいくらですか",
+      "max_steps": 3,
+      "first_call": {
+        "acceptable_tools": [
+          "billing.getPaymentStatus",
+          "billing.getInvoice"
+        ],
+        "args": {
+          "invoice_id": {
+            "match": "contains",
+            "value": "INV-2003"
+          }
+        }
+      },
+      "required_tools": [
+        "billing.getPaymentStatus"
+      ]
+    },
+    {
+      "id": "B15",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "鈴木一郎さんの窓口担当者は誰ですか",
+      "max_steps": 4,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "鈴木"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search",
+        "customer.listContacts"
+      ]
+    },
+    {
+      "id": "B16",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "高橋みどりさんのメールアドレスを教えて",
+      "max_steps": 4,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "高橋"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search"
+      ]
+    },
+    {
+      "id": "B17",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "ワイヤレスマウスは大阪倉庫にいくつありますか",
+      "max_steps": 5,
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.searchProducts",
+          "inventory.listWarehouses"
+        ],
+        "args": {}
+      },
+      "required_tools": [
+        "inventory.getStock"
+      ]
+    },
+    {
+      "id": "B18",
+      "category": "multi_hop_single_service",
+      "user_id": "u_admin",
+      "query": "注文 O-1003 には何点の商品が入っていますか",
+      "max_steps": 3,
+      "required_tools": [
+        "order.listItems"
+      ]
+    },
+    {
+      "id": "C11",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "佐藤花子さんの請求書と入金状況をまとめて教えて",
+      "max_steps": 6,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "佐藤"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search"
+      ]
+    },
+    {
+      "id": "C12",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "田中次郎さんの注文の配送状況を教えて",
+      "max_steps": 6,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search",
+        "order.search"
+      ]
+    },
+    {
+      "id": "C13",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "輸送中の荷物がどの顧客のものか調べて",
+      "max_steps": 6,
+      "first_call": {
+        "acceptable_tools": [
+          "shipping.search"
+        ],
+        "args": {
+          "status": {
+            "match": "equals",
+            "value": "IN_TRANSIT"
+          }
+        }
+      },
+      "required_tools": [
+        "shipping.search"
+      ]
+    },
+    {
+      "id": "C14",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "支払期限を過ぎている請求書の顧客名を教えて",
+      "max_steps": 6,
+      "first_call": {
+        "acceptable_tools": [
+          "billing.searchInvoices",
+          "billing.listUnpaid"
+        ],
+        "args": {}
+      },
+      "forbidden_tools": [
+        "order.search"
+      ]
+    },
+    {
+      "id": "C15",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "鈴木一郎さんの注文と請求をまとめて確認したい",
+      "max_steps": 6,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "鈴木"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search"
+      ]
+    },
+    {
+      "id": "C16",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "メカニカルキーボードを注文した顧客を教えて",
+      "max_steps": 6,
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.searchProducts",
+          "order.search"
+        ],
+        "args": {}
+      }
+    },
+    {
+      "id": "C17",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "高橋みどりさんの注文はいつ届きますか",
+      "max_steps": 6,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "高橋"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search",
+        "order.search"
+      ]
+    },
+    {
+      "id": "C18",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "佐藤花子さんの一番古い注文の配送はどうなっていますか",
+      "max_steps": 6,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "佐藤"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search",
+        "order.search"
+      ]
+    },
+    {
+      "id": "C19",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "田中太郎さんの与信限度額と今年の受注金額を比べたい",
+      "max_steps": 6,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.getCreditStatus",
+        "order.getSummary"
+      ]
+    },
+    {
+      "id": "C20",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "利用停止中の顧客に未払いはありますか",
+      "max_steps": 6,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "status": {
+            "match": "equals",
+            "value": "SUSPENDED"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search"
+      ]
+    },
+    {
+      "id": "C21",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "伊藤健さんの注文の商品名を教えて",
+      "max_steps": 6,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "伊藤"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search",
+        "order.search"
+      ]
+    },
+    {
+      "id": "C22",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "配達が完了している注文の顧客を一覧して",
+      "max_steps": 6,
+      "first_call": {
+        "acceptable_tools": [
+          "shipping.search",
+          "order.search"
+        ],
+        "args": {}
+      }
+    },
+    {
+      "id": "C23",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "高橋みどりさんの受注金額と未払い残高を両方教えて",
+      "max_steps": 6,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "高橋"
+          }
+        }
+      },
+      "required_tools": [
+        "billing.getOutstandingBalance"
+      ]
+    },
+    {
+      "id": "C24",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "27インチモニタの在庫と単価をまとめて教えて",
+      "max_steps": 5,
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.searchProducts"
+        ],
+        "args": {
+          "keyword": {
+            "match": "contains",
+            "value": "モニタ"
+          }
+        }
+      },
+      "required_tools": [
+        "inventory.searchProducts"
+      ]
+    },
+    {
+      "id": "C25",
+      "category": "cross_service",
+      "user_id": "u_admin",
+      "query": "田中太郎さんの注文の合計金額と請求済み金額の差を知りたい",
+      "max_steps": 6,
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "contains",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [
+        "customer.search"
+      ]
+    },
+    {
+      "id": "D09",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "田中次郎さんの与信の状況を教えて",
+      "max_steps": 4,
+      "note": "与信区分は customer。残高ではない。",
+      "required_tools": [
+        "customer.getCreditStatus"
+      ],
+      "forbidden_tools": [
+        "billing.getOutstandingBalance"
+      ]
+    },
+    {
+      "id": "D10",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "伊藤健さんが今いくら滞留させていますか",
+      "max_steps": 4,
+      "note": "滞留額は billing の残高。与信限度額ではない。",
+      "required_tools": [
+        "billing.getOutstandingBalance"
+      ],
+      "forbidden_tools": [
+        "customer.getCreditStatus"
+      ]
+    },
+    {
+      "id": "D11",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "佐藤花子さんの先月の受注金額は",
+      "max_steps": 4,
+      "note": "受注ベースは order.getSummary。",
+      "required_tools": [
+        "order.getSummary"
+      ],
+      "forbidden_tools": [
+        "billing.searchInvoices"
+      ]
+    },
+    {
+      "id": "D12",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "注文 O-1005 の荷物は今どこですか",
+      "max_steps": 3,
+      "note": "現在の状況は getStatus。予定日ではない。",
+      "required_tools": [
+        "shipping.getStatus"
+      ],
+      "forbidden_tools": [
+        "shipping.getDeliveryEstimate"
+      ]
+    },
+    {
+      "id": "D13",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "注文 O-1005 はいつ届く予定ですか",
+      "max_steps": 3,
+      "required_tools": [
+        "shipping.getDeliveryEstimate"
+      ],
+      "forbidden_tools": [
+        "shipping.getTracking"
+      ]
+    },
+    {
+      "id": "D14",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "まだ請求書が支払われていないものを出して",
+      "max_steps": 3,
+      "note": "請求の未払い。注文の未発送ではない。",
+      "forbidden_tools": [
+        "order.search",
+        "order.countByStatus"
+      ]
+    },
+    {
+      "id": "D15",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "まだ届いていない注文を出して",
+      "max_steps": 4,
+      "note": "配達前の注文。請求の未払いではない。",
+      "forbidden_tools": [
+        "billing.listUnpaid",
+        "billing.searchInvoices"
+      ]
+    },
+    {
+      "id": "D16",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "請求書 INV-2004 の発行日を教えて",
+      "max_steps": 3,
+      "note": "発行日は請求書詳細。入金状況ではない。",
+      "required_tools": [
+        "billing.getInvoice"
+      ],
+      "forbidden_tools": [
+        "billing.getPaymentStatus"
+      ]
+    },
+    {
+      "id": "D17",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "請求書 INV-2004 にいつ入金がありましたか",
+      "max_steps": 3,
+      "required_tools": [
+        "billing.getPaymentStatus"
+      ]
+    },
+    {
+      "id": "D18",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "商品 P002 の販売価格を教えて",
+      "max_steps": 3,
+      "note": "単価は商品マスタ。在庫数ではない。",
+      "required_tools": [
+        "inventory.getProduct"
+      ],
+      "forbidden_tools": [
+        "inventory.getStock"
+      ]
+    },
+    {
+      "id": "D19",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "商品 P002 は何個残っていますか",
+      "max_steps": 3,
+      "required_tools": [
+        "inventory.getStock"
+      ],
+      "forbidden_tools": [
+        "inventory.listLowStock"
+      ]
+    },
+    {
+      "id": "D20",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "倉庫はどこにありますか",
+      "max_steps": 3,
+      "note": "倉庫マスタ。在庫ではない。",
+      "required_tools": [
+        "inventory.listWarehouses"
+      ],
+      "forbidden_tools": [
+        "inventory.listLowStock"
+      ]
+    },
+    {
+      "id": "D21",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "注文 O-1007 の受注日を教えて",
+      "max_steps": 3,
+      "note": "受注日は order。出荷日ではない。",
+      "required_tools": [
+        "order.get"
+      ],
+      "forbidden_tools": [
+        "shipping.getStatus"
+      ]
+    },
+    {
+      "id": "D22",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "注文 O-1007 の出荷日を教えて",
+      "max_steps": 3,
+      "required_tools": [
+        "shipping.getStatus"
+      ],
+      "forbidden_tools": [
+        "order.get"
+      ]
+    },
+    {
+      "id": "D23",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "鈴木一郎さんの取引状態を教えて",
+      "max_steps": 4,
+      "note": "顧客の status。注文の状態ではない。",
+      "required_tools": [
+        "customer.search"
+      ],
+      "forbidden_tools": [
+        "order.countByStatus"
+      ]
+    },
+    {
+      "id": "D24",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "田中太郎さんの注文の内訳を状態ごとに知りたい",
+      "max_steps": 4,
+      "required_tools": [
+        "order.countByStatus"
+      ],
+      "forbidden_tools": [
+        "customer.getCreditStatus"
+      ]
+    },
+    {
+      "id": "D25",
+      "category": "ambiguity",
+      "user_id": "u_admin",
+      "query": "佐藤花子さんの担当営業は誰ですか",
+      "max_steps": 4,
+      "note": "担当営業は customer の属性。窓口担当者 (contacts) ではない。",
+      "required_tools": [
+        "customer.search"
+      ]
+    },
+    {
+      "id": "E09",
+      "category": "permission",
+      "user_id": "u_sales_e",
+      "query": "顧客はそれぞれ誰がいますか。顧客IDも教えて",
+      "note": "EAST 営業には EAST の顧客だけ。 権限の絞り込みは Tool 結果でしか観測できないため、一覧を求める文言を避けて Tool 経路を通す。",
+      "permission": {
+        "must_include_ids": [
+          "C001",
+          "C002",
+          "C003"
+        ],
+        "must_exclude_ids": [
+          "C004",
+          "C005",
+          "C006"
+        ]
+      }
+    },
+    {
+      "id": "E10",
+      "category": "permission",
+      "user_id": "u_sales_w",
+      "query": "顧客はそれぞれ誰がいますか。顧客IDも教えて",
+      "permission": {
+        "must_include_ids": [
+          "C004",
+          "C005",
+          "C006"
+        ],
+        "must_exclude_ids": [
+          "C001",
+          "C002",
+          "C003"
+        ]
+      },
+      "note": "権限の絞り込みは Tool 結果でしか観測できないため、一覧を求める文言を避けて Tool 経路を通す。"
+    },
+    {
+      "id": "E11",
+      "category": "permission",
+      "user_id": "u_sales_e",
+      "query": "注文の注文IDをすべて教えて",
+      "note": "EAST の顧客の注文のみ。 権限の絞り込みは Tool 結果でしか観測できないため、一覧を求める文言を避けて Tool 経路を通す。",
+      "permission": {
+        "must_include_ids": [
+          "O-1001"
+        ],
+        "must_exclude_ids": [
+          "O-1008",
+          "O-1009",
+          "O-1010",
+          "O-1011"
+        ]
+      }
+    },
+    {
+      "id": "E12",
+      "category": "permission",
+      "user_id": "u_sales_w",
+      "query": "注文の注文IDをすべて教えて",
+      "permission": {
+        "must_include_ids": [
+          "O-1008"
+        ],
+        "must_exclude_ids": [
+          "O-1001",
+          "O-1002",
+          "O-1003",
+          "O-1004"
+        ]
+      },
+      "note": "権限の絞り込みは Tool 結果でしか観測できないため、一覧を求める文言を避けて Tool 経路を通す。"
+    },
+    {
+      "id": "E13",
+      "category": "permission",
+      "user_id": "u_wh",
+      "query": "未払いの請求書を出して",
+      "note": "倉庫ロールは billing が 403。",
+      "permission": {
+        "expect_denied": true
+      }
+    },
+    {
+      "id": "E14",
+      "category": "permission",
+      "user_id": "u_wh",
+      "query": "注文は何件ありますか",
+      "permission": {
+        "expect_denied": true
+      },
+      "note": "権限の絞り込みは Tool 結果でしか観測できないため、一覧を求める文言を避けて Tool 経路を通す。"
+    },
+    {
+      "id": "E15",
+      "category": "permission",
+      "user_id": "u_wh",
+      "query": "配送に失敗した出荷を教えて",
+      "permission": {
+        "expect_denied": true
+      }
+    },
+    {
+      "id": "E16",
+      "category": "permission",
+      "user_id": "u_wh",
+      "query": "倉庫の一覧を教えて",
+      "note": "在庫は倉庫ロールでも参照できる。",
+      "required_tools": [
+        "inventory.listWarehouses"
+      ],
+      "permission": {
+        "expect_denied": false
+      }
+    },
+    {
+      "id": "E17",
+      "category": "permission",
+      "user_id": "u_support",
+      "query": "請求書を全部出して",
+      "note": "サポートロールは billing が 403。",
+      "permission": {
+        "expect_denied": true
+      }
+    },
+    {
+      "id": "E18",
+      "category": "permission",
+      "user_id": "u_support",
+      "query": "顧客はそれぞれ誰がいますか。顧客IDも教えて",
+      "note": "サポートロールは顧客を全件参照できる。 権限の絞り込みは Tool 結果でしか観測できないため、一覧を求める文言を避けて Tool 経路を通す。",
+      "permission": {
+        "must_include_ids": [
+          "C001",
+          "C004"
+        ],
+        "expect_denied": false
+      }
+    },
+    {
+      "id": "E19",
+      "category": "permission",
+      "user_id": "u_sales_e",
+      "query": "高橋みどりさんの注文を確認したい",
+      "max_steps": 5,
+      "note": "C005 は WEST。EAST 営業には見えない。",
+      "permission": {
+        "must_exclude_ids": [
+          "C005"
+        ]
+      }
+    },
+    {
+      "id": "E20",
+      "category": "permission",
+      "user_id": "u_sales_w",
+      "query": "田中太郎さんの未払いを確認したい",
+      "max_steps": 5,
+      "note": "C001 は EAST。WEST 営業には見えない。",
+      "permission": {
+        "must_exclude_ids": [
+          "C001"
+        ]
+      }
+    },
+    {
+      "id": "E21",
+      "category": "permission",
+      "user_id": "u_sales_e",
+      "query": "配送に失敗した出荷を教えて",
+      "note": "S-3005 は WEST なので EAST 営業には見えない。",
+      "permission": {
+        "must_exclude_ids": [
+          "S-3005",
+          "O-1008"
+        ]
+      }
+    },
+    {
+      "id": "E22",
+      "category": "permission",
+      "user_id": "u_sales_w",
+      "query": "配送に失敗した出荷を教えて",
+      "permission": {
+        "must_include_ids": [
+          "S-3005"
         ]
       }
     }

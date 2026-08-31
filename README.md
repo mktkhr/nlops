@@ -55,7 +55,7 @@ frontend/         React + MUI (pnpm + Vite+)
   src/features/     assistant / order / customer
   src/shared/       api / ui / user
 eval/             評価ハーネス
-  golden/cases.json ゴールデンセット (40 ケース)
+  golden/cases.json ゴールデンセット (150 ケース / 7 カテゴリ)
   cmd/spike/        初手 Tool 選定だけを測る (サービス起動不要)
   cmd/evalrun/      Tool Loop 全体を測る (サービス起動が必要)
   cmd/mkcatalog/    スケール検証用カタログの生成
@@ -120,6 +120,7 @@ Web UI は `http://localhost:5173/`。右上のユーザー切り替えで権限
 | `-strict` | `true` | Tool ごとに引数スキーマを固定する |
 | `-no-projection` | `false` | Response Projection を切って比較する |
 | `-no-guard` | `false` | 未解決 ID の差し戻しを切って比較する |
+| `-intent-gate` | `true` | Loop の前に navigate / tool を 2 択で判定する |
 | `-catalog` | `catalog/services.json` | 使用するカタログ (スケール検証で差し替える) |
 | `-json` | `false` | 実行トレースを JSON で出す |
 

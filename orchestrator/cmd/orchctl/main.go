@@ -32,6 +32,7 @@ func main() {
 		noGuard = flag.Bool("no-guard", false, "未解決 ID の差し戻しを無効化する")
 		reason  = flag.String("reasoning", "none", "reasoning_effort (gpt-oss 系は low)")
 		maxTok  = flag.Int("max-tokens", 512, "1 反復あたりの max_tokens")
+		gate    = flag.Bool("intent-gate", true, "Loop の前に navigate / tool を2択で判定する")
 		noStop  = flag.Bool("no-stop-guard", false, "空振り連続時の finish 強制を無効化する (比較計測用)")
 		noProj  = flag.Bool("no-projection", false, "Response Projection を無効化する (比較計測用)")
 		asJSON  = flag.Bool("json", false, "トレースを JSON で出力する")
@@ -73,7 +74,7 @@ func main() {
 
 	tr := runner.Run(context.Background(), id, query, loop.Options{
 		Model: *model, Mode: loop.Mode(*mode), StrictArgs: *strict,
-		MaxSteps: *steps, MaxTokens: *maxTok, Answer: true, StopGuard: !*noStop,
+		MaxSteps: *steps, MaxTokens: *maxTok, Answer: true, StopGuard: !*noStop, IntentGate: *gate,
 	})
 
 	if *asJSON {

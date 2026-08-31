@@ -141,7 +141,7 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	// ステップ完了ごとに逐次流す。OnStep は Run と同じ goroutine から呼ばれる。
 	tr := s.Runner.Run(r.Context(), id, req.Query, loop.Options{
 		Model: s.Model, Mode: s.Mode, StrictArgs: true,
-		MaxSteps: s.MaxSteps, MaxTokens: 512, Answer: true, StopGuard: true,
+		MaxSteps: s.MaxSteps, MaxTokens: 512, Answer: true, StopGuard: true, IntentGate: true,
 		OnStep: func(st loop.Step) { send("step", toStepDTO(st)) },
 	})
 
@@ -224,7 +224,7 @@ func (s *Server) handleOrders(w http.ResponseWriter, r *http.Request) {
 		custQ.Set("name", nameFilter)
 	}
 	names := map[string]string{}
-	customers, _, cerr := s.fetchList(r.Context(), id, "customer", "/customers", custQ)
+	customers, ccode, cerr := s.fetchList(r.Context(), id, "customer", "/customers", custQ)
 	if cerr == nil {
 		for _, c := range customers {
 			if cid, ok := c["customer_id"].(string); ok {
@@ -234,7 +234,8 @@ func (s *Server) handleOrders(w http.ResponseWriter, r *http.Request) {
 	}
 	if nameFilter != "" {
 		if cerr != nil {
-			writeErr(w, http.StatusBadGateway, cerr.Error())
+			// 403 を 502 へ潰さない。権限がないことは呼び出し側へそのまま伝える。
+			writeErr(w, ccode, cerr.Error())
 			return
 		}
 		if len(names) == 0 {

@@ -13,6 +13,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -39,11 +41,14 @@ type outcome struct {
 	RequiredOK bool    `json:"required_ok"`
 	ForbidOK   bool    `json:"forbid_ok"`
 	PermOK     bool    `json:"perm_ok"`
+	NavOK      bool    `json:"nav_ok"`
+	StepsOK    bool    `json:"steps_ok"`
 	Pass       bool    `json:"pass"`
 
 	MissingTools []string `json:"missing_tools,omitempty"`
 	HitForbidden []string `json:"hit_forbidden,omitempty"`
 	PermNote     string   `json:"perm_note,omitempty"`
+	NavNote      string   `json:"nav_note,omitempty"`
 
 	Trace *loop.Trace `json:"trace"`
 }
@@ -55,7 +60,7 @@ func main() {
 		modes   = flag.String("modes", "one_stage", "one_stage / two_stage")
 		catPath = flag.String("catalog", "catalog/services.json", "カタログ")
 		rolPath = flag.String("roles", "catalog/roles.json", "ロール定義")
-		rtPath  = flag.String("routes", "", "画面定義。既定は無効 (既存の計測と比較可能にするため)")
+		rtPath  = flag.String("routes", "catalog/routes.json", "画面定義。空文字で画面遷移を無効化")
 		csPath  = flag.String("cases", "eval/golden/cases.json", "ゴールデンセット")
 		outDir  = flag.String("out", "docs/spike-raw", "生ログ出力先")
 		filter  = flag.String("category", "", "カテゴリで絞る")
@@ -64,9 +69,11 @@ func main() {
 		noGuard = flag.Bool("no-guard", false, "未解決 ID の差し戻しを無効化する")
 		reason  = flag.String("reasoning", "none", "reasoning_effort (gpt-oss 系は low)")
 		maxTok  = flag.Int("max-tokens", 512, "1 反復あたりの max_tokens")
+		gate    = flag.Bool("intent-gate", true, "Loop の前に navigate / tool を2択で判定する")
 		noStop  = flag.Bool("no-stop-guard", false, "空振り連続時の finish 強制を無効化する (比較計測用)")
 		noProj  = flag.Bool("no-projection", false, "Response Projection を無効化する (比較計測用)")
 		answer  = flag.Bool("answer", false, "最終回答の生成まで行う (遅くなる)")
+		bffURL  = flag.String("bff", "http://127.0.0.1:8080", "BFF の URL。画面遷移で終わった場合の権限検証に使う")
 	)
 	flag.Parse()
 
@@ -133,9 +140,9 @@ func main() {
 				}
 				tr := runner.Run(ctx, id, c.Query, loop.Options{
 					Model: model, Mode: loop.Mode(mode), StrictArgs: true,
-					MaxSteps: *steps, MaxTokens: *maxTok, Answer: *answer, StopGuard: !*noStop,
+					MaxSteps: *steps, MaxTokens: *maxTok, Answer: *answer, StopGuard: !*noStop, IntentGate: *gate,
 				})
-				o := grade(c, tr, model, mode)
+				o := grade(c, tr, model, mode, *bffURL)
 				all = append(all, o)
 				_ = enc.Encode(o)
 				fmt.Fprint(os.Stderr, mark(o))
@@ -152,7 +159,7 @@ func main() {
 	failures(all)
 }
 
-func grade(c golden.Case, tr *loop.Trace, model, mode string) outcome {
+func grade(c golden.Case, tr *loop.Trace, model, mode, bffURL string) outcome {
 	o := outcome{Model: model, Mode: mode, CaseID: c.ID, Category: c.Category,
 		Query: c.Query, UserID: c.UserID, Trace: tr}
 
@@ -178,24 +185,55 @@ func grade(c golden.Case, tr *loop.Trace, model, mode string) outcome {
 			o.HitForbidden = append(o.HitForbidden, t)
 		}
 	}
-	o.PermOK, o.PermNote = gradePermission(c, tr)
-	o.Pass = o.RequiredOK && o.ForbidOK && o.PermOK && tr.Err == ""
+	o.PermOK, o.PermNote = gradePermission(c, tr, bffURL)
+
+	o.NavOK = true
+	if c.Navigate != nil {
+		route, filters := "", map[string]string{}
+		if tr.Navigate != nil {
+			route, filters = tr.Navigate.Route, tr.Navigate.Filters
+		}
+		o.NavOK, o.NavNote = c.Navigate.Check(route, filters)
+	}
+
+	o.StepsOK = true
+	if c.MaxSteps > 0 && len(tr.Steps) > c.MaxSteps {
+		o.StepsOK = false
+	}
+
+	o.Pass = o.RequiredOK && o.ForbidOK && o.PermOK && o.NavOK && o.StepsOK && tr.Err == ""
 	return o
 }
 
 // gradePermission は権限差が結果へ正しく反映されたかを見る。
-func gradePermission(c golden.Case, tr *loop.Trace) (bool, string) {
+//
+// 画面遷移で終わった場合は Tool 結果が無いので、実際にその画面を開いて
+// 返ってくるデータで確かめる。遷移経路が権限を迂回していないことの検証でもある。
+func gradePermission(c golden.Case, tr *loop.Trace, bffURL string) (bool, string) {
 	if c.Permission == nil {
 		return true, ""
 	}
 	p := c.Permission
+
+	denied := tr.Denied
+	seen := collectStrings(tr)
+	if tr.Navigate != nil {
+		ids, screenDenied, err := screenContents(bffURL, tr.UserID, tr.Navigate)
+		if err != nil {
+			return false, "遷移先の画面を確認できなかった: " + err.Error()
+		}
+		denied = denied || screenDenied
+		for k := range ids {
+			seen[k] = true
+		}
+	}
+
 	if p.ExpectDenied {
-		if tr.Denied {
+		if denied {
 			return true, "denied を観測"
 		}
 		return false, "403 を期待したが観測されなかった"
 	}
-	seen := collectStrings(tr)
 	for _, want := range p.MustIncludeIDs {
 		if !seen[want] {
 			return false, fmt.Sprintf("%s が結果に含まれていない", want)
@@ -206,10 +244,65 @@ func gradePermission(c golden.Case, tr *loop.Trace) (bool, string) {
 			return false, fmt.Sprintf("%s が漏れている (権限違反)", ng)
 		}
 	}
-	if tr.Denied {
+	if denied {
 		return false, "予期しない 403"
 	}
 	return true, ""
+}
+
+// screenContents は遷移先の画面を実際に開き、表示されるデータの文字列値を集める。
+func screenContents(bffURL, userID string, nav *loop.Navigation) (map[string]bool, bool, error) {
+	q := url.Values{}
+	for k, v := range nav.Filters {
+		q.Set(k, v)
+	}
+	u := bffURL + "/api" + nav.Route
+	if len(q) > 0 {
+		u += "?" + q.Encode()
+	}
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return nil, false, err
+	}
+	req.Header.Set("X-Nlops-User-Id", userID)
+
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return nil, false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusForbidden {
+		return map[string]bool{}, true, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, false, fmt.Errorf("画面 API が %d を返した", resp.StatusCode)
+	}
+	var body struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, false, err
+	}
+	out := map[string]bool{}
+	var walk func(any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case string:
+			out[x] = true
+		case map[string]any:
+			for _, val := range x {
+				walk(val)
+			}
+		case []any:
+			for _, item := range x {
+				walk(item)
+			}
+		}
+	}
+	for _, it := range body.Items {
+		walk(it)
+	}
+	return out, false, nil
 }
 
 // collectStrings はトレース内の Projection 済み結果に現れた文字列値を集める。
@@ -251,10 +344,10 @@ func servicesOf(tools []string) []string {
 }
 
 type stat struct {
-	n, pass, req, forbid, perm, errs int
-	svcRecall                        float64
-	totalMS, promptTok, cachedTok    float64
-	rawB, projB, stepsN              float64
+	n, pass, req, forbid, perm, nav, steps, errs int
+	svcRecall                                    float64
+	totalMS, promptTok, cachedTok                float64
+	rawB, projB, stepsN                          float64
 }
 
 func summarize(os_ []outcome) {
@@ -262,7 +355,7 @@ func summarize(os_ []outcome) {
 	byCat := map[string]*stat{}
 	var order, cats []string
 	for _, o := range os_ {
-		k := o.Model + " | " + o.Mode
+		k := o.Model + " / " + o.Mode
 		s, ok := byKey[k]
 		if !ok {
 			s = &stat{}
@@ -289,6 +382,12 @@ func summarize(os_ []outcome) {
 			if o.PermOK {
 				t.perm++
 			}
+			if o.NavOK {
+				t.nav++
+			}
+			if o.StepsOK {
+				t.steps++
+			}
 			if o.Trace.Err != "" {
 				t.errs++
 			}
@@ -305,14 +404,14 @@ func summarize(os_ []outcome) {
 	sort.Strings(cats)
 
 	fmt.Println("\n### 構成別")
-	fmt.Println("| 構成 | n | 総合 | 必須Tool到達 | 禁止Tool回避 | 権限 | svc recall | 平均step | 平均ms | prompt tok | cache率 | raw->proj 削減 |")
-	fmt.Println("|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|")
+	fmt.Println("| 構成 | n | 総合 | 必須Tool | 禁止Tool回避 | 権限 | 遷移 | step超過なし | 平均step | 平均ms | cache率 |")
+	fmt.Println("|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|")
 	for _, k := range order {
 		printStat(k, byKey[k])
 	}
 	fmt.Println("\n### カテゴリ別")
-	fmt.Println("| カテゴリ | n | 総合 | 必須Tool到達 | 禁止Tool回避 | 権限 | svc recall | 平均step | 平均ms | prompt tok | cache率 | raw->proj 削減 |")
-	fmt.Println("|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|")
+	fmt.Println("| カテゴリ | n | 総合 | 必須Tool | 禁止Tool回避 | 権限 | 遷移 | step超過なし | 平均step | 平均ms | cache率 |")
+	fmt.Println("|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|")
 	for _, c := range cats {
 		printStat(c, byCat[c])
 	}
@@ -324,15 +423,11 @@ func printStat(label string, s *stat) {
 	if s.promptTok > 0 {
 		cache = s.cachedTok / s.promptTok * 100
 	}
-	red := 0.0
-	if s.rawB > 0 {
-		red = (1 - s.projB/s.rawB) * 100
-	}
-	fmt.Printf("| %s | %d | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.1f | %.0f | %.0f | %.0f%% | %.0f%% |\n",
+	fmt.Printf("| %s | %d | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.1f | %.0f | %.0f%% |\n",
 		label, s.n,
 		float64(s.pass)/n*100, float64(s.req)/n*100, float64(s.forbid)/n*100,
-		float64(s.perm)/n*100, s.svcRecall/n*100,
-		s.stepsN/n, s.totalMS/n, s.promptTok/n, cache, red)
+		float64(s.perm)/n*100, float64(s.nav)/n*100, float64(s.steps)/n*100,
+		s.stepsN/n, s.totalMS/n, cache)
 }
 
 func failures(os_ []outcome) {
@@ -359,6 +454,12 @@ func failures(os_ []outcome) {
 		if o.PermNote != "" && !o.PermOK {
 			fmt.Printf("    権限: %s\n", o.PermNote)
 		}
+		if !o.NavOK {
+			fmt.Printf("    遷移: %s\n", o.NavNote)
+		}
+		if !o.StepsOK {
+			fmt.Printf("    ステップ超過: %d 回\n", len(o.Trace.Steps))
+		}
 		if o.Trace.Err != "" {
 			fmt.Printf("    err: %s\n", o.Trace.Err)
 		}
@@ -371,6 +472,10 @@ func mark(o outcome) string {
 		return "X"
 	case !o.PermOK:
 		return "p"
+	case !o.NavOK:
+		return "n"
+	case !o.StepsOK:
+		return "s"
 	case !o.ForbidOK:
 		return "f"
 	case !o.RequiredOK:

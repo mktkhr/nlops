@@ -47,6 +47,11 @@ type Options struct {
 	// finish しか選べなくする。過剰探索でレイテンシが伸びる失敗を実測したため。
 	StopGuard bool
 
+	// IntentGate が true のとき、Loop に入る前に「画面を開くだけで済むか」を
+	// 2 択で判定し、以降の選択肢をその側だけに絞る。
+	// 27 分岐の中からモードを選ばせると安定しなかったため設けた。
+	IntentGate bool
+
 	// OnStep は 1 ステップ完了ごとに呼ばれる。BFF が進捗をストリームするために使う。
 	OnStep func(Step)
 }
@@ -88,6 +93,8 @@ type Trace struct {
 	// Navigate は「画面を開いて絞り込めば済む」と判断された場合の遷移先。
 	Navigate *Navigation `json:"navigate,omitempty"`
 
+	Intent     string  `json:"intent,omitempty"` // IntentGate 使用時の判定結果
+	IntentMS   float64 `json:"intent_ms"`
 	RouteMS    float64 `json:"route_ms"`
 	AnswerMS   float64 `json:"answer_ms"`
 	TotalMS    float64 `json:"total_ms"`
@@ -140,6 +147,27 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 		Mode: string(opt.Mode), Model: opt.Model}
 	r.Executor.Reset(query)
 
+	// モード判定。navigate 側と決まったら Tool の選択肢を渡さない。
+	routes := r.Routes
+	navigateOnly := false
+	if opt.IntentGate && routes != nil {
+		mode, resp, err := r.classifyIntent(ctx, query, opt)
+		if resp != nil {
+			tr.IntentMS = ms(resp.Wall)
+			tr.PromptTok += resp.Usage.PromptTokens
+			tr.CachedTok += resp.Usage.PromptTokensDetails.CachedTokens
+			tr.CompTok += resp.Usage.CompletionTokens
+		}
+		if err == nil {
+			tr.Intent = mode
+			if mode == "navigate" {
+				navigateOnly = true
+			} else {
+				routes = nil
+			}
+		}
+	}
+
 	tools := r.Catalog.Tools()
 	if opt.Mode == ModeTwoStage {
 		svcs, resp, err := r.routeServices(ctx, query, opt)
@@ -165,8 +193,11 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 
 	// 履歴は append のみ。prefix を壊さないため書き換えない。
 	msgs := []llm.Message{
-		{Role: "system", Content: prompt.LoopSystem(tools, r.Routes)},
+		{Role: "system", Content: prompt.LoopSystem(tools, routes)},
 		{Role: "user", Content: query},
+	}
+	if navigateOnly {
+		msgs[0].Content = prompt.NavigateOnlySystem(routes)
 	}
 	// executed は Tool 実行が 1 回でも成立したか。成立するまで finish を許さない。
 	executed := false
@@ -180,7 +211,10 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 
 	for i := 1; i <= opt.MaxSteps; i++ {
 		step := Step{Iteration: i}
-		schema := prompt.LoopSchema(tools, r.Routes, opt.StrictArgs, executed)
+		schema := prompt.LoopSchema(tools, routes, opt.StrictArgs, executed)
+		if navigateOnly {
+			schema = prompt.NavigateOnlySchema(routes)
+		}
 		// 空振りが続いたら Tool の選択肢自体を外す。プロンプトでの依頼より確実。
 		forced := opt.StopGuard && executed && barren >= 2
 		if forced {
@@ -398,6 +432,28 @@ func barrenResult(res executor.Result) bool {
 // resolveNavigation は LLM が出した遷移先を検証する。
 // 定義外のフィルタは落とし、未解決の ID は差し戻す。
 // 戻り値の 2 つ目が空でなければ遷移させず、その内容を LLM へ返す。
+// classifyIntent は「画面を開くだけで済むか」を 2 択で判定する。
+func (r *Runner) classifyIntent(ctx context.Context, query string, opt Options) (string, *llm.Response, error) {
+	resp, err := r.LLM.Chat(ctx, llm.Request{
+		Model: opt.Model, Temperature: 0, MaxTokens: 64,
+		Messages: []llm.Message{
+			{Role: "system", Content: prompt.IntentSystem(r.Routes)},
+			{Role: "user", Content: query},
+		},
+		ResponseFormat: &llm.ResponseFormat{Type: "json_schema", JSONSchema: prompt.IntentSchema()},
+	})
+	if err != nil {
+		return "", resp, err
+	}
+	var out struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.Unmarshal([]byte(resp.Text()), &out); err != nil {
+		return "", resp, err
+	}
+	return out.Mode, resp, nil
+}
+
 func (r *Runner) resolveNavigation(route string, filters map[string]string, reason string) (*Navigation, string) {
 	if r.Routes == nil {
 		return nil, "画面遷移は利用できません。Tool を使ってください。"

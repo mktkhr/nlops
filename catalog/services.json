@@ -555,7 +555,7 @@
         },
         {
           "name": "shipping.search",
-          "description": "配送状態や配送業者で出荷を検索する。",
+          "description": "出荷を配送状態や配送業者コードで検索する。返すのは出荷であって、配送業者そのものの一覧ではない。",
           "http": {
             "method": "GET",
             "path": "/shipments"
@@ -628,7 +628,7 @@
         },
         {
           "name": "shipping.listCarriers",
-          "description": "利用可能な配送業者の一覧を取得する。",
+          "description": "利用可能な配送業者そのものの一覧を取得する。「どの業者が使えるか」を答える場合はこれを使う。",
           "http": {
             "method": "GET",
             "path": "/carriers"

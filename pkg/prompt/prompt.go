@@ -202,6 +202,8 @@ func LoopSystem(tools []toolschema.Tool, routes *uiroute.Catalog) string {
 			b.WriteString(renderFilters(r))
 			b.WriteString("\n")
 		}
+		b.WriteString("上に挙げた画面がすべてです。商品・在庫・配送・請求・与信の一覧画面はありません。\n")
+		b.WriteString("これらに関する要求は、一覧を求めるものであっても navigate せず Tool を実行します。\n\n")
 		b.WriteString("# B: 利用可能な Tool\n\n")
 	} else {
 		b.WriteString("ユーザーの要求に答えるため、Tool を1回に1つずつ実行して情報を集めます。\n\n")
@@ -221,13 +223,17 @@ func LoopSystem(tools []toolschema.Tool, routes *uiroute.Catalog) string {
 		b.WriteString("- 「田中さんの注文を画面で見せて」→ navigate。氏名を受け取るフィルタがあるので\n")
 		b.WriteString("  Tool で ID を解決する必要はありません。\n")
 		b.WriteString("- 「田中さんの未払い残高はいくらですか」→ 特定の値を答えるので Tool を実行します。\n")
-		b.WriteString("- 「田中さんの注文は何件ありますか」→ 件数を答えるので Tool を実行します。\n\n")
+		b.WriteString("- 「田中さんの注文は何件ありますか」→ 件数を答えるので Tool を実行します。\n")
+		b.WriteString("- 「使える配送業者を教えて」→ 配送業者の画面が無いので Tool を実行します。\n")
+		b.WriteString("- 「周辺機器の商品を見せて」→ 商品の画面が無いので Tool を実行します。\n")
+		b.WriteString("- 「利用停止の顧客はいますか」→ 顧客画面は取引状態で絞り込めないので Tool を実行します。\n\n")
 	}
 
 	b.WriteString("# 指示\n")
 	if hasRoutes {
 		b.WriteString("- 「一覧」「見せて」「表示して」「画面」を含む要求は、まず navigate で足りるか考えます。\n")
-		b.WriteString("  画面のフィルタで表現できるなら、Tool を実行せず navigate を選びます。\n")
+		b.WriteString("  ただし navigate できるのは、要求が画面のフィルタだけで完全に表現できる場合に限ります。\n")
+		b.WriteString("  対応する画面が無い、または必要な絞り込みがフィルタに無いなら Tool を実行します。\n")
 		b.WriteString("- navigate のフィルタに ID を入れる場合は、先に検索系の Tool で解決した ID だけを使います。\n")
 		b.WriteString("  氏名しか分からない状態で customer_id を書いてはいけません。\n")
 		b.WriteString("- 画面のフィルタで表現できる条件は、Tool を使わずそのまま navigate に書きます。\n")
@@ -354,6 +360,98 @@ func FinishOnlySchema() *llm.JSONSchema {
 		"required":             []string{"next"},
 		"additionalProperties": false,
 	}}
+}
+
+// IntentSystem はモード判定の system prompt を返す。
+//
+// Tool 定義を一切見せず、画面だけを見せて「画面を開くだけで満たせるか」を
+// 判定させる。27 個の分岐から選ばせるより、2 択の方が安定するという想定。
+func IntentSystem(routes *uiroute.Catalog) string {
+	var b strings.Builder
+	b.WriteString("ユーザーの要求が、次の画面を開いて絞り込むだけで満たせるかを判定します。\n\n")
+	b.WriteString("# 画面\n\n")
+	for _, r := range routes.Routes {
+		fmt.Fprintf(&b, "## %s (%s)\n%s\n", r.Path, r.Title, r.Description)
+		b.WriteString(renderFilters(r))
+		b.WriteString("\n")
+	}
+	b.WriteString("# 判定\n")
+	b.WriteString("- navigate: 上の画面のどれかと、そのフィルタだけで要求を完全に表現できる。\n")
+	b.WriteString("  氏名での絞り込みはフィルタで直接できるので、IDへの変換は不要です。\n")
+	b.WriteString("- tool: それ以外。対応する画面が無い、必要な絞り込みがフィルタに無い、\n")
+	b.WriteString("  または件数・金額・状態など特定の値を答える必要がある。\n\n")
+	b.WriteString("# 例\n")
+	b.WriteString("- 「西日本の顧客の一覧を開いて」→ navigate\n")
+	b.WriteString("- 「田中さんの注文を画面で見せて」→ navigate (customer_name で絞れる)\n")
+	b.WriteString("- 「高橋みどりさんの注文一覧を開いて」→ navigate\n")
+	b.WriteString("- 「担当している顧客の一覧を開いて」→ navigate (フィルタなしで開く)\n")
+	b.WriteString("- 「利用停止の顧客はいますか」→ tool (取引状態のフィルタが無い)\n")
+	b.WriteString("- 「使える配送業者を教えて」→ tool (配送業者の画面が無い)\n")
+	b.WriteString("- 「田中さんの未払い残高はいくら」→ tool (特定の値を答える)\n\n")
+	b.WriteString("JSON のみを出力します。\n")
+	return b.String()
+}
+
+// IntentSchema はモード判定の出力スキーマを返す。
+func IntentSchema() *llm.JSONSchema {
+	return &llm.JSONSchema{Name: "intent", Strict: true, Schema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"mode": map[string]any{"type": "string", "enum": []string{"navigate", "tool"}},
+		},
+		"required":             []string{"mode"},
+		"additionalProperties": false,
+	}}
+}
+
+// NavigateOnlySystem は画面遷移だけを行うときの system prompt を返す。
+// Tool 定義を見せないので、要求を画面のフィルタへ写すことに集中できる。
+func NavigateOnlySystem(routes *uiroute.Catalog) string {
+	var b strings.Builder
+	b.WriteString("ユーザーの要求を、業務画面の絞り込み状態へ変換します。\n\n")
+	b.WriteString("# 画面\n\n")
+	for _, r := range routes.Routes {
+		fmt.Fprintf(&b, "## %s (%s)\n%s\n", r.Path, r.Title, r.Description)
+		b.WriteString(renderFilters(r))
+		b.WriteString("\n")
+	}
+	b.WriteString("# 指示\n")
+	b.WriteString("- 要求に最も合う画面を1つ選びます。\n")
+	b.WriteString("- 要求から読み取れる条件だけをフィルタに入れます。読み取れないものは省略します。\n")
+	b.WriteString("- 氏名はそのままフィルタに入れます。IDへ変換する必要はありません。\n")
+	b.WriteString("- enum が定義されたフィルタは、必ずその候補のいずれかを使います。\n")
+	b.WriteString("- reason には画面を開く理由を1文で書きます。\n")
+	b.WriteString("- JSON のみを出力します。\n")
+	return b.String()
+}
+
+// NavigateOnlySchema は画面遷移しか選べないスキーマを返す。
+// モード判定が navigate だったときに使う。
+func NavigateOnlySchema(routes *uiroute.Catalog) *llm.JSONSchema {
+	var variants []any
+	for _, r := range routes.Routes {
+		props := map[string]any{}
+		for _, n := range r.FilterNames() {
+			f := r.Filters[n]
+			m := map[string]any{"type": "string"}
+			if len(f.Enum) > 0 {
+				m["enum"] = f.Enum
+			}
+			props[n] = m
+		}
+		variants = append(variants, map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"next":    map[string]any{"const": "navigate"},
+				"route":   map[string]any{"const": r.Path},
+				"filters": map[string]any{"type": "object", "properties": props, "additionalProperties": false},
+				"reason":  map[string]any{"type": "string"},
+			},
+			"required":             []string{"next", "route", "filters", "reason"},
+			"additionalProperties": false,
+		})
+	}
+	return &llm.JSONSchema{Name: "loop_step", Strict: true, Schema: map[string]any{"anyOf": variants}}
 }
 
 // AnswerSystem は最終回答生成の system prompt を返す。

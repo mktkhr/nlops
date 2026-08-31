@@ -29,6 +29,48 @@ type Case struct {
 	ForbiddenTools   []string  `json:"forbidden_tools"`
 
 	Permission *Permission `json:"permission,omitempty"`
+
+	// Navigate は画面遷移に対する期待。nil のときは遷移の有無を採点しない。
+	Navigate *NavigateExpect `json:"navigate,omitempty"`
+
+	// MaxSteps はこのケースで許容する最大ステップ数。0 なら採点しない。
+	// 過剰探索を測るために使う。
+	MaxSteps int `json:"max_steps,omitempty"`
+}
+
+// NavigateExpect は画面遷移の期待。
+type NavigateExpect struct {
+	// Expected が false のとき「遷移してはいけない」を意味する。
+	Expected bool               `json:"expected"`
+	Route    string             `json:"route,omitempty"`
+	Filters  map[string]Matcher `json:"filters,omitempty"`
+}
+
+// Check は実際の遷移結果を採点する。
+func (n *NavigateExpect) Check(route string, filters map[string]string) (bool, string) {
+	navigated := route != ""
+	if !n.Expected {
+		if navigated {
+			return false, fmt.Sprintf("遷移すべきでないのに %s へ遷移した", route)
+		}
+		return true, ""
+	}
+	if !navigated {
+		return false, "画面遷移を期待したが遷移しなかった"
+	}
+	if n.Route != "" && n.Route != route {
+		return false, fmt.Sprintf("遷移先が %s、期待は %s", route, n.Route)
+	}
+	for k, m := range n.Filters {
+		v, ok := filters[k]
+		if !ok {
+			return false, fmt.Sprintf("フィルタ %s が無い", k)
+		}
+		if !m.Matches(v) {
+			return false, fmt.Sprintf("フィルタ %s の値が %q", k, v)
+		}
+	}
+	return true, ""
 }
 
 // FirstCall は初手の Tool 呼び出しに対する期待。
