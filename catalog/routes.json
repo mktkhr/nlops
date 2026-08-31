@@ -1,0 +1,51 @@
+{
+  "version": "1",
+  "note": "LLM が遷移先として選べる画面とフィルタ。Tool カタログと同じく、ここに無い画面・フィルタは文法レベルで生成できない。値は URL のクエリ文字列として渡され、画面側がそれを初期状態として読む。",
+  "routes": [
+    {
+      "path": "/orders",
+      "title": "注文一覧",
+      "description": "注文を状態や顧客で絞り込んで一覧表示する画面。個々の値を答えるのではなく、一覧を見せたい場合に使う。",
+      "filters": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "PLACED",
+            "CONFIRMED",
+            "SHIPPED",
+            "DELIVERED",
+            "CANCELLED"
+          ],
+          "description": "注文の状態。未発送は PLACED または CONFIRMED。"
+        },
+        "customer_name": {
+          "type": "string",
+          "description": "顧客の氏名の部分一致。氏名しか分からない場合はこれを使う（ID の解決は不要）。"
+        },
+        "customer_id": {
+          "type": "string",
+          "description": "顧客ID。既に ID が分かっている場合のみ使う。"
+        }
+      }
+    },
+    {
+      "path": "/customers",
+      "title": "顧客一覧",
+      "description": "顧客を氏名や担当地域で絞り込んで一覧表示する画面。",
+      "filters": {
+        "name": {
+          "type": "string",
+          "description": "氏名の部分一致"
+        },
+        "region": {
+          "type": "string",
+          "enum": [
+            "EAST",
+            "WEST"
+          ],
+          "description": "担当地域"
+        }
+      }
+    }
+  ]
+}

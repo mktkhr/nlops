@@ -35,6 +35,7 @@ LLM が触れないもの: URL / 認証情報 / SQL / ドメインルール / �
 ```text
 catalog/          サービスと Tool の定義 (LLM に見せる情報と Executor だけが知る情報)
   services.json     実サービス 5 / 24 Tool
+  routes.json       LLM が遷移先として選べる画面とフィルタ (§14)
   decoys.json       スケール検証用の手書きダミー 10 サービス / 100 Tool (責務が隣接)
   decoys-bulk.json  テンプレート生成用の 45 ドメイン (context への圧力担当)
   scale/            mkcatalog が生成する 44〜504 Tool のカタログ
@@ -82,6 +83,9 @@ make web
 
 # 単発の問い合わせ
 ./bin/orchctl -user u_admin "田中太郎さんの未発送の注文を確認したい"
+
+# 画面遷移で答える例 (Tool を実行せず 1.3〜2 秒で返る)
+./bin/orchctl -user u_admin "西日本の顧客の一覧を開いて"
 
 # 権限差を見る (同じ問い合わせ、違うユーザー)
 ./bin/orchctl -user u_sales_e "田中という名前の顧客を探して"
@@ -144,6 +148,7 @@ Orchestrator を触るときに壊してはいけない前提。
    - 履歴は append のみ。途中の要約圧縮をしない
 3. **LLM に URL と認証情報を渡さない。** Tool 名と引数だけを出させ、
    HTTP の組み立ては `orchestrator/executor` が行う。
-4. **READ-only。** 更新系 Tool はカタログに載せない。
+4. **READ-only。** 更新系 Tool はカタログに載せない。画面遷移も
+   `catalog/routes.json` に定義した画面とフィルタしか生成できない。
 5. **BFF に Domain Logic を置かない。** 業務ルール・Validation・データ整合性は
    Microservice の責務。BFF は Presentation と Orchestration に限る。

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useSearchParams } from 'react-router'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import LinearProgress from '@mui/material/LinearProgress'
@@ -23,14 +23,30 @@ const STATUSES = ['PLACED', 'CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED']
 
 export function OrderPage() {
   const { current } = useUser()
-  const [status, setStatus] = useState('')
-  const [customerId, setCustomerId] = useState('')
+  // フィルタは URL に置く。LLM が返した画面の状態をそのまま反映でき、
+  // URL を共有すれば同じ絞り込みを再現できる。
+  const [params, setParams] = useSearchParams()
+  const status = params.get('status') ?? ''
+  const customerName = params.get('customer_name') ?? ''
+  const customerId = params.get('customer_id') ?? ''
+
+  const setFilter = (key: string, value: string) => {
+    const next = new URLSearchParams(params)
+    if (value) next.set(key, value)
+    else next.delete(key)
+    setParams(next, { replace: true })
+  }
+
   const userId = current?.userId ?? ''
   const { items, error, loading } = useResource<Order>(
-    `${userId}|${status}|${customerId}`,
+    `${userId}|${status}|${customerName}|${customerId}`,
     () =>
       userId
-        ? fetchOrders(userId, { status, customer_id: customerId })
+        ? fetchOrders(userId, {
+            status,
+            customer_name: customerName,
+            customer_id: customerId,
+          })
         : Promise.resolve({ items: [] }),
   )
 
@@ -47,7 +63,7 @@ export function OrderPage() {
             size="small"
             label="状態"
             value={status}
-            onChange={(e) => setStatus(e.target.value)}
+            onChange={(e) => setFilter('status', e.target.value)}
             sx={{ minWidth: 180 }}
           >
             <MenuItem value="">すべて</MenuItem>
@@ -59,10 +75,18 @@ export function OrderPage() {
           </TextField>
           <TextField
             size="small"
+            label="顧客名"
+            placeholder="田中"
+            value={customerName}
+            onChange={(e) => setFilter('customer_name', e.target.value)}
+            sx={{ minWidth: 180 }}
+          />
+          <TextField
+            size="small"
             label="顧客ID"
             placeholder="C001"
             value={customerId}
-            onChange={(e) => setCustomerId(e.target.value)}
+            onChange={(e) => setFilter('customer_id', e.target.value)}
             sx={{ minWidth: 180 }}
           />
         </Stack>

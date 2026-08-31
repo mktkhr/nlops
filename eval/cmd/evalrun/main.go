@@ -24,6 +24,7 @@ import (
 	"github.com/mktkhr/nlops/pkg/authctx"
 	"github.com/mktkhr/nlops/pkg/llm"
 	"github.com/mktkhr/nlops/pkg/toolschema"
+	"github.com/mktkhr/nlops/pkg/uiroute"
 )
 
 type outcome struct {
@@ -54,6 +55,7 @@ func main() {
 		modes   = flag.String("modes", "one_stage", "one_stage / two_stage")
 		catPath = flag.String("catalog", "catalog/services.json", "カタログ")
 		rolPath = flag.String("roles", "catalog/roles.json", "ロール定義")
+		rtPath  = flag.String("routes", "", "画面定義。既定は無効 (既存の計測と比較可能にするため)")
 		csPath  = flag.String("cases", "eval/golden/cases.json", "ゴールデンセット")
 		outDir  = flag.String("out", "docs/spike-raw", "生ログ出力先")
 		filter  = flag.String("category", "", "カテゴリで絞る")
@@ -109,6 +111,13 @@ func main() {
 	lc := llm.New(*base)
 	lc.ReasoningEffort = *reason
 	runner := loop.New(cat, lc)
+	if *rtPath != "" {
+		routes, err := uiroute.Load(*rtPath)
+		if err != nil {
+			die(err)
+		}
+		runner.Routes = routes
+	}
 	runner.Executor.GuardUnresolvedIDs = !*noGuard
 	runner.Executor.DisableProjection = *noProj
 	ctx := context.Background()

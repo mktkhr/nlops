@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mktkhr/nlops/orchestrator/executor"
@@ -18,6 +19,7 @@ import (
 	"github.com/mktkhr/nlops/pkg/llm"
 	"github.com/mktkhr/nlops/pkg/prompt"
 	"github.com/mktkhr/nlops/pkg/toolschema"
+	"github.com/mktkhr/nlops/pkg/uiroute"
 )
 
 // Mode はルーティングの段数。
@@ -49,6 +51,14 @@ type Options struct {
 	OnStep func(Step)
 }
 
+// Navigation は LLM が生成した画面の状態。
+// 元案 §14 の「WRITE API を直接実行せず Frontend の状態を返す」経路。
+type Navigation struct {
+	Route   string            `json:"route"`
+	Filters map[string]string `json:"filters,omitempty"`
+	Reason  string            `json:"reason,omitempty"`
+}
+
 // Step は Tool Loop の 1 反復。
 type Step struct {
 	Iteration int              `json:"iteration"`
@@ -56,6 +66,7 @@ type Step struct {
 	Arguments map[string]any   `json:"arguments,omitempty"`
 	Finish    bool             `json:"finish,omitempty"`
 	Forced    bool             `json:"forced,omitempty"` // 空振り連続で finish を強制した
+	Navigate  *Navigation      `json:"navigate,omitempty"`
 	Result    *executor.Result `json:"result,omitempty"`
 	LLMms     float64          `json:"llm_ms"`
 	PromptTok int              `json:"prompt_tokens"`
@@ -73,6 +84,9 @@ type Trace struct {
 	Services []string `json:"services,omitempty"`
 	Steps    []Step   `json:"steps"`
 	Answer   string   `json:"answer,omitempty"`
+
+	// Navigate は「画面を開いて絞り込めば済む」と判断された場合の遷移先。
+	Navigate *Navigation `json:"navigate,omitempty"`
 
 	RouteMS    float64 `json:"route_ms"`
 	AnswerMS   float64 `json:"answer_ms"`
@@ -103,6 +117,9 @@ type Runner struct {
 	Catalog  *toolschema.Catalog
 	LLM      *llm.Client
 	Executor *executor.Executor
+
+	// Routes が設定されているとき、LLM は画面遷移を選べるようになる。
+	Routes *uiroute.Catalog
 }
 
 // New は Runner を作る。
@@ -148,20 +165,22 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 
 	// 履歴は append のみ。prefix を壊さないため書き換えない。
 	msgs := []llm.Message{
-		{Role: "system", Content: prompt.LoopSystem(tools)},
+		{Role: "system", Content: prompt.LoopSystem(tools, r.Routes)},
 		{Role: "user", Content: query},
 	}
 	// executed は Tool 実行が 1 回でも成立したか。成立するまで finish を許さない。
 	executed := false
 	// barren は「収穫のない結果」が連続した回数。
 	barren := 0
+	// navigated は画面遷移で終わったか。終わっていれば最終回答は作らない。
+	navigated := false
 	// seenCalls は実行済みの (Tool, 引数) の組。小型モデルが同じ呼び出しを
 	// 繰り返して進捗しない失敗を実測したため、2 回目以降は実行せず差し戻す。
 	seenCalls := map[string]bool{}
 
 	for i := 1; i <= opt.MaxSteps; i++ {
 		step := Step{Iteration: i}
-		schema := prompt.LoopSchema(tools, opt.StrictArgs, executed)
+		schema := prompt.LoopSchema(tools, r.Routes, opt.StrictArgs, executed)
 		// 空振りが続いたら Tool の選択肢自体を外す。プロンプトでの依頼より確実。
 		forced := opt.StopGuard && executed && barren >= 2
 		if forced {
@@ -192,9 +211,12 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 			break
 		}
 		var decision struct {
-			Next      string         `json:"next"`
-			Tool      string         `json:"tool"`
-			Arguments map[string]any `json:"arguments"`
+			Next      string            `json:"next"`
+			Tool      string            `json:"tool"`
+			Arguments map[string]any    `json:"arguments"`
+			Route     string            `json:"route"`
+			Filters   map[string]string `json:"filters"`
+			Reason    string            `json:"reason"`
 		}
 		if err := json.Unmarshal([]byte(resp.Text()), &decision); err != nil {
 			tr.Err = fmt.Sprintf("step %d: JSON 不正: %v", i, err)
@@ -206,6 +228,29 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 			step.Forced = forced
 			tr.Steps = append(tr.Steps, step)
 			emit(opt, step)
+			goto answer
+		}
+
+		if decision.Next == "navigate" {
+			nav, retry := r.resolveNavigation(decision.Route, decision.Filters, decision.Reason)
+			if retry != "" {
+				// フィルタの ID が未解決。遷移させずに差し戻して選び直させる。
+				step.Result = &executor.Result{Tool: "navigate", Error: retry}
+				barren++
+				tr.Steps = append(tr.Steps, step)
+				emit(opt, step)
+				msgs = append(msgs,
+					llm.Message{Role: "assistant", Content: resp.Text()},
+					llm.Message{Role: "user", Content: fmt.Sprintf("[tool_result] navigate (step %d/%d)\n{\"error\":%q}", i, opt.MaxSteps, retry)})
+				continue
+			}
+			step.Navigate = nav
+			tr.Navigate = nav
+			tr.Steps = append(tr.Steps, step)
+			emit(opt, step)
+			// 画面を開くのが答えなので、最終回答の生成は行わない。
+			tr.Answer = nav.Reason
+			navigated = true
 			goto answer
 		}
 
@@ -249,7 +294,7 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 	}
 
 answer:
-	if opt.Answer && tr.Err == "" {
+	if opt.Answer && tr.Err == "" && !navigated {
 		ans, resp, err := r.finalAnswer(ctx, msgs, query, opt)
 		if resp != nil {
 			tr.AnswerMS = ms(resp.Wall)
@@ -348,6 +393,31 @@ func barrenResult(res executor.Result) bool {
 		return len(items) == 0
 	}
 	return len(m) == 0
+}
+
+// resolveNavigation は LLM が出した遷移先を検証する。
+// 定義外のフィルタは落とし、未解決の ID は差し戻す。
+// 戻り値の 2 つ目が空でなければ遷移させず、その内容を LLM へ返す。
+func (r *Runner) resolveNavigation(route string, filters map[string]string, reason string) (*Navigation, string) {
+	if r.Routes == nil {
+		return nil, "画面遷移は利用できません。Tool を使ってください。"
+	}
+	def, ok := r.Routes.ByPath(route)
+	if !ok {
+		return nil, fmt.Sprintf("画面 %q は存在しません。", route)
+	}
+	clean := def.Sanitize(filters)
+
+	// Tool 引数と同じ基準で ID の出所を確かめる。
+	asAny := make(map[string]any, len(clean))
+	for k, v := range clean {
+		asAny[k] = v
+	}
+	if bad := r.Executor.UnresolvedIDs(asAny); len(bad) > 0 {
+		return nil, fmt.Sprintf("%s: フィルタ %s の値は未解決です。先に検索系の Tool で ID を取得してください。",
+			executor.ErrUnresolvedID, strings.Join(bad, ", "))
+	}
+	return &Navigation{Route: def.Path, Filters: clean, Reason: reason}, ""
 }
 
 func emit(opt Options, s Step) {

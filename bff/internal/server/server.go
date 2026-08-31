@@ -148,6 +148,13 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	if tr.Err != "" {
 		send("error", map[string]any{"message": tr.Err})
 	}
+	if tr.Navigate != nil {
+		send("navigate", map[string]any{
+			"route":   tr.Navigate.Route,
+			"filters": tr.Navigate.Filters,
+			"reason":  tr.Navigate.Reason,
+		})
+	}
 	send("answer", map[string]any{"answer": tr.Answer})
 	send("done", map[string]any{
 		"totalMs":    tr.TotalMS,
@@ -159,6 +166,7 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 		"denied":     tr.Denied,
 		"incomplete": tr.Incomplete,
 		"toolsUsed":  tr.ToolsUsed(),
+		"navigated":  tr.Navigate != nil,
 	})
 	s.Log.Info("ask", "user", id.UserID, "steps", len(tr.Steps), "ms", int(tr.TotalMS))
 }
@@ -173,13 +181,14 @@ type stepDTO struct {
 	Denied    bool           `json:"denied,omitempty"`
 	Error     string         `json:"error,omitempty"`
 	Result    any            `json:"result,omitempty"`
+	Navigate  *loop.Navigation `json:"navigate,omitempty"`
 	LLMms     float64        `json:"llmMs"`
 }
 
 func toStepDTO(st loop.Step) stepDTO {
 	d := stepDTO{
 		Iteration: st.Iteration, Tool: st.Tool, Arguments: st.Arguments,
-		Finish: st.Finish, Forced: st.Forced, LLMms: st.LLMms,
+		Finish: st.Finish, Forced: st.Forced, Navigate: st.Navigate, LLMms: st.LLMms,
 	}
 	if st.Result != nil {
 		d.Status = st.Result.Status
@@ -206,20 +215,38 @@ func (s *Server) handleOrders(w http.ResponseWriter, r *http.Request) {
 			q.Set(k, v)
 		}
 	}
-	orders, code, err := s.fetchList(r.Context(), id, "order", "/orders", q)
-	if err != nil {
-		writeErr(w, code, err.Error())
-		return
-	}
 
-	// 顧客名は customer サービスが持つ。必要な分だけ引く。
+	// 顧客名は customer サービスが持つ。氏名でフィルタする場合はここで ID へ
+	// 解決する。画面 (と LLM) が顧客IDを知らなくて済むようにするための Aggregation。
+	nameFilter := r.URL.Query().Get("customer_name")
+	custQ := url.Values{}
+	if nameFilter != "" {
+		custQ.Set("name", nameFilter)
+	}
 	names := map[string]string{}
-	if customers, _, err := s.fetchList(r.Context(), id, "customer", "/customers", nil); err == nil {
+	customers, _, cerr := s.fetchList(r.Context(), id, "customer", "/customers", custQ)
+	if cerr == nil {
 		for _, c := range customers {
 			if cid, ok := c["customer_id"].(string); ok {
 				names[cid], _ = c["name"].(string)
 			}
 		}
+	}
+	if nameFilter != "" {
+		if cerr != nil {
+			writeErr(w, http.StatusBadGateway, cerr.Error())
+			return
+		}
+		if len(names) == 0 {
+			writeJSON(w, http.StatusOK, map[string]any{"items": []any{}, "count": 0})
+			return
+		}
+	}
+
+	orders, code, err := s.fetchList(r.Context(), id, "order", "/orders", q)
+	if err != nil {
+		writeErr(w, code, err.Error())
+		return
 	}
 
 	type dto struct {
@@ -233,6 +260,11 @@ func (s *Server) handleOrders(w http.ResponseWriter, r *http.Request) {
 	items := make([]dto, 0, len(orders))
 	for _, o := range orders {
 		cid, _ := o["customer_id"].(string)
+		if nameFilter != "" {
+			if _, ok := names[cid]; !ok {
+				continue
+			}
+		}
 		items = append(items, dto{
 			OrderID:      str(o["order_id"]),
 			CustomerID:   cid,

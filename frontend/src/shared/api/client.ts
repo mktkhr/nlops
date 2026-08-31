@@ -7,6 +7,12 @@ export type User = {
   region?: string
 }
 
+export type Navigation = {
+  route: string
+  filters?: Record<string, string>
+  reason?: string
+}
+
 export type Step = {
   iteration: number
   tool?: string
@@ -17,6 +23,7 @@ export type Step = {
   denied?: boolean
   error?: string
   result?: unknown
+  navigate?: Navigation
   llmMs: number
 }
 
@@ -30,6 +37,7 @@ export type Done = {
   denied: boolean
   incomplete: boolean
   toolsUsed: string[]
+  navigated: boolean
 }
 
 export type Order = {
@@ -85,6 +93,7 @@ export function fetchCustomers(
 
 export type AskHandlers = {
   onStep: (step: Step) => void
+  onNavigate: (nav: Navigation) => void
   onAnswer: (answer: string) => void
   onDone: (done: Done) => void
   onError: (message: string) => void
@@ -152,6 +161,9 @@ function dispatch(block: string, handlers: AskHandlers): void {
   switch (event) {
     case 'step':
       handlers.onStep(payload as Step)
+      break
+    case 'navigate':
+      handlers.onNavigate(payload as Navigation)
       break
     case 'answer':
       handlers.onAnswer((payload as { answer: string }).answer)

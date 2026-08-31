@@ -227,6 +227,15 @@ func invalidEnums(t toolschema.Tool, args map[string]any) []string {
 	return bad
 }
 
+// UnresolvedIDs は未解決の ID 引数を返す。画面遷移のフィルタにも
+// 同じ検証をかけるため公開している。
+func (e *Executor) UnresolvedIDs(args map[string]any) []string {
+	if !e.GuardUnresolvedIDs {
+		return nil
+	}
+	return e.unresolvedIDs(args)
+}
+
 // unresolvedIDs は「ID を要求する引数なのに、まだどこにも現れていない値」を返す。
 func (e *Executor) unresolvedIDs(args map[string]any) []string {
 	var bad []string

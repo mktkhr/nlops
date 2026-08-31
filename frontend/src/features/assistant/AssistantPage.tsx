@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
+import { useNavigate } from 'react-router'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -11,22 +12,32 @@ import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import BlockIcon from '@mui/icons-material/Block'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import ErrorIcon from '@mui/icons-material/Error'
 import SendIcon from '@mui/icons-material/Send'
 import { streamAsk } from '../../shared/api/client'
-import type { Done, Step } from '../../shared/api/client'
+import type { Done, Navigation, Step } from '../../shared/api/client'
 import { PageHeader } from '../../shared/ui/PageHeader'
 import { useUser } from '../../shared/user/user-context'
 
 const EXAMPLES = [
-  '田中太郎さんの未発送の注文を確認したい',
+  '田中太郎さんの注文を画面で見せて',
+  '西日本の顧客の一覧を開いて',
   '高橋みどりさんに未払いの請求はありますか',
   '在庫が5個を下回っている商品を出して',
-  '田中という名前の顧客を探して',
 ]
+
+/** LLM が返した画面の状態を URL へ変換する。 */
+function toPath(nav: Navigation): string {
+  const q = new URLSearchParams(
+    Object.entries(nav.filters ?? {}).filter(([, v]) => v !== ''),
+  ).toString()
+  return q ? `${nav.route}?${q}` : nav.route
+}
 
 export function AssistantPage() {
   const { current } = useUser()
+  const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [steps, setSteps] = useState<Step[]>([])
   const [answer, setAnswer] = useState('')
@@ -52,6 +63,8 @@ export function AssistantPage() {
           current.userId,
           {
             onStep: (s) => setSteps((prev) => [...prev, s]),
+            // 画面を開くのが答えなので、そのまま遷移する。
+            onNavigate: (nav) => navigate(toPath(nav)),
             onAnswer: setAnswer,
             onDone: setDone,
             onError: setError,
@@ -67,7 +80,7 @@ export function AssistantPage() {
         abortRef.current = null
       }
     },
-    [current, running],
+    [current, running, navigate],
   )
 
   return (
@@ -165,6 +178,19 @@ export function AssistantPage() {
 }
 
 function StepRow({ step }: { step: Step }) {
+  if (step.navigate) {
+    return (
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+        <OpenInNewIcon fontSize="small" color="primary" />
+        <Typography variant="body2" color="text.secondary">
+          画面を開きます:{' '}
+          <Box component="span" sx={{ fontFamily: 'monospace' }}>
+            {toPath(step.navigate)}
+          </Box>
+        </Typography>
+      </Stack>
+    )
+  }
   if (step.finish) {
     return (
       <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>

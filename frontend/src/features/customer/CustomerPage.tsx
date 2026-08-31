@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useSearchParams } from 'react-router'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Chip from '@mui/material/Chip'
@@ -22,8 +22,18 @@ import { useUser } from '../../shared/user/user-context'
 
 export function CustomerPage() {
   const { current } = useUser()
-  const [name, setName] = useState('')
-  const [region, setRegion] = useState('')
+  // フィルタは URL に置く (OrderPage と同じ理由)。
+  const [params, setParams] = useSearchParams()
+  const name = params.get('name') ?? ''
+  const region = params.get('region') ?? ''
+
+  const setFilter = (key: string, value: string) => {
+    const next = new URLSearchParams(params)
+    if (value) next.set(key, value)
+    else next.delete(key)
+    setParams(next, { replace: true })
+  }
+
   const userId = current?.userId ?? ''
   const { items, error, loading } = useResource<Customer>(
     `${userId}|${name}|${region}`,
@@ -46,7 +56,7 @@ export function CustomerPage() {
             label="氏名"
             placeholder="田中"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => setFilter('name', e.target.value)}
             sx={{ minWidth: 180 }}
           />
           <TextField
@@ -54,7 +64,7 @@ export function CustomerPage() {
             size="small"
             label="担当地域"
             value={region}
-            onChange={(e) => setRegion(e.target.value)}
+            onChange={(e) => setFilter('region', e.target.value)}
             sx={{ minWidth: 180 }}
           >
             <MenuItem value="">すべて</MenuItem>

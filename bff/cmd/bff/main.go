@@ -17,6 +17,7 @@ import (
 	"github.com/mktkhr/nlops/pkg/authctx"
 	"github.com/mktkhr/nlops/pkg/llm"
 	"github.com/mktkhr/nlops/pkg/toolschema"
+	"github.com/mktkhr/nlops/pkg/uiroute"
 )
 
 func main() {
@@ -28,6 +29,7 @@ func main() {
 		reason  = flag.String("reasoning", "none", "reasoning_effort")
 		catPath = flag.String("catalog", "catalog/services.json", "カタログ")
 		rolPath = flag.String("roles", "catalog/roles.json", "ロール定義")
+		rtPath  = flag.String("routes", "catalog/routes.json", "画面定義。空文字で画面遷移を無効化")
 		steps   = flag.Int("max-steps", 6, "Tool Loop の最大反復数")
 	)
 	flag.Parse()
@@ -43,7 +45,15 @@ func main() {
 
 	client := llm.New(*base)
 	client.ReasoningEffort = *reason
-	srv := server.New(loop.New(cat, client), dir, cat)
+	runner := loop.New(cat, client)
+	if *rtPath != "" {
+		routes, err := uiroute.Load(*rtPath)
+		if err != nil {
+			die(err)
+		}
+		runner.Routes = routes
+	}
+	srv := server.New(runner, dir, cat)
 	srv.Model = *model
 	srv.Mode = loop.Mode(*mode)
 	srv.MaxSteps = *steps

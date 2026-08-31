@@ -15,6 +15,7 @@ import (
 
 	"github.com/mktkhr/nlops/pkg/llm"
 	"github.com/mktkhr/nlops/pkg/toolschema"
+	"github.com/mktkhr/nlops/pkg/uiroute"
 )
 
 // ServiceRouterSystem は Stage 1 (Service Router) の system prompt を返す。
@@ -183,30 +184,85 @@ func argsSchema(s toolschema.Schema) map[string]any {
 }
 
 // LoopSystem は Tool Execution Loop の system prompt を返す。
-// ToolSelectorSystem との差分は「終了を宣言できる」ことだけ。
-func LoopSystem(tools []toolschema.Tool) string {
+// ToolSelectorSystem との差分は、終了の宣言と画面遷移を選べること。
+// routes が nil のときは画面遷移の説明を出さない。
+func LoopSystem(tools []toolschema.Tool, routes *uiroute.Catalog) string {
+	hasRoutes := routes != nil && len(routes.Routes) > 0
+
 	var b strings.Builder
 	b.WriteString("あなたは業務システムの操作エージェントです。\n")
-	b.WriteString("ユーザーの要求に答えるため、Tool を1回に1つずつ実行して情報を集めます。\n\n")
-	b.WriteString("# 利用可能な Tool\n\n")
+	if hasRoutes {
+		b.WriteString("ユーザーの要求に対して、次の2つのどちらかで応えます。\n\n")
+		b.WriteString("A. 画面を開く (navigate) — 絞り込んだ一覧を見れば済む要求。これを優先します。\n")
+		b.WriteString("B. Tool を実行する — 件数・金額・状態など、特定の値を答える必要がある要求。\n\n")
+
+		b.WriteString("# A: 遷移できる画面\n\n")
+		for _, r := range routes.Routes {
+			fmt.Fprintf(&b, "## %s (%s)\n%s\n", r.Path, r.Title, r.Description)
+			b.WriteString(renderFilters(r))
+			b.WriteString("\n")
+		}
+		b.WriteString("# B: 利用可能な Tool\n\n")
+	} else {
+		b.WriteString("ユーザーの要求に答えるため、Tool を1回に1つずつ実行して情報を集めます。\n\n")
+		b.WriteString("# 利用可能な Tool\n\n")
+	}
+
 	for _, t := range tools {
 		fmt.Fprintf(&b, "## %s\n%s\n", t.Name, t.Description)
 		b.WriteString(renderParams(t.Parameters))
 		b.WriteString("\n")
 	}
+
+	if hasRoutes {
+		b.WriteString("# 判断の例\n")
+		b.WriteString("- 「東日本の顧客の一覧を見せて」→ navigate。Tool は使いません。\n")
+		b.WriteString("- 「未発送の注文を画面で見たい」→ navigate。Tool は使いません。\n")
+		b.WriteString("- 「田中さんの注文を画面で見せて」→ navigate。氏名を受け取るフィルタがあるので\n")
+		b.WriteString("  Tool で ID を解決する必要はありません。\n")
+		b.WriteString("- 「田中さんの未払い残高はいくらですか」→ 特定の値を答えるので Tool を実行します。\n")
+		b.WriteString("- 「田中さんの注文は何件ありますか」→ 件数を答えるので Tool を実行します。\n\n")
+	}
+
 	b.WriteString("# 指示\n")
+	if hasRoutes {
+		b.WriteString("- 「一覧」「見せて」「表示して」「画面」を含む要求は、まず navigate で足りるか考えます。\n")
+		b.WriteString("  画面のフィルタで表現できるなら、Tool を実行せず navigate を選びます。\n")
+		b.WriteString("- navigate のフィルタに ID を入れる場合は、先に検索系の Tool で解決した ID だけを使います。\n")
+		b.WriteString("  氏名しか分からない状態で customer_id を書いてはいけません。\n")
+		b.WriteString("- 画面のフィルタで表現できる条件は、Tool を使わずそのまま navigate に書きます。\n")
+		b.WriteString("  一覧の中身を Tool で取りに行ってはいけません。中身は画面が表示します。\n")
+		b.WriteString("- navigate は最後の行動です。reason には画面を開く理由を1文で書きます。\n")
+	}
 	b.WriteString("- 1回につき Tool を1つだけ実行します。複数の Tool をまとめて計画しません。\n")
 	b.WriteString("- ID を推測してはいけません。ID が分からない場合は、まず検索系の Tool で ID を解決します。\n")
 	b.WriteString("- 直前の Tool 結果に含まれる値だけを次の引数に使います。\n")
 	b.WriteString("- 引数はユーザーの要求から読み取れる値だけを入れます。分からない引数は省略します。\n")
 	b.WriteString("- enum が定義された引数は、必ずその候補のいずれかを使います。\n")
-	b.WriteString("- Tool の結果が denied のときは、権限がないという事実をそのまま受け入れて終了します。同じ Tool を再試行しません。\n")
 	b.WriteString("- 情報が足りないうちは必ず Tool を実行します。まだ何も実行していない状態で finish を選んではいけません。\n")
 	b.WriteString("- 検索結果が 0 件だったときは、条件を広げた再検索を 1 回だけ試します。それでも 0 件なら finish します。\n")
 	b.WriteString("- 同じ Tool を条件だけ変えて 3 回以上呼んではいけません。\n")
 	b.WriteString("- ユーザーの要求に直接答えるのに必要のない Tool は呼びません。関連情報を集めて回る必要はありません。\n")
+	b.WriteString("- Tool の結果が denied のときは、権限がないという事実をそのまま受け入れて終了します。同じ Tool を再試行しません。\n")
 	b.WriteString("- ユーザーの要求に答えるだけの情報が集まったら next=\"finish\" を返します。\n")
 	b.WriteString("- JSON のみを出力します。\n")
+	return b.String()
+}
+
+func renderFilters(r uiroute.Route) string {
+	if len(r.Filters) == 0 {
+		return "フィルタ: なし\n"
+	}
+	var b strings.Builder
+	b.WriteString("フィルタ:\n")
+	for _, n := range r.FilterNames() {
+		f := r.Filters[n]
+		typ := f.Type
+		if len(f.Enum) > 0 {
+			typ = typ + ": " + strings.Join(f.Enum, " | ")
+		}
+		fmt.Fprintf(&b, "- %s (%s) %s\n", n, typ, f.Description)
+	}
 	return b.String()
 }
 
@@ -216,7 +272,7 @@ func LoopSystem(tools []toolschema.Tool) string {
 // allowFinish=false のとき finish の選択肢自体をスキーマから外す。
 // Tool を 1 つも実行していないうちに finish を選ぶ失敗を実測したため、
 // プロンプトでの依頼ではなく文法で禁止する。
-func LoopSchema(tools []toolschema.Tool, strictArgs, allowFinish bool) *llm.JSONSchema {
+func LoopSchema(tools []toolschema.Tool, routes *uiroute.Catalog, strictArgs, allowFinish bool) *llm.JSONSchema {
 	var variants []any
 	if !strictArgs {
 		variants = append(variants, map[string]any{
@@ -243,6 +299,34 @@ func LoopSchema(tools []toolschema.Tool, strictArgs, allowFinish bool) *llm.JSON
 			})
 		}
 	}
+	// 画面遷移。定義された画面とフィルタしか書けないよう固定する。
+	if routes != nil {
+		for _, r := range routes.Routes {
+			props := map[string]any{}
+			for _, n := range r.FilterNames() {
+				f := r.Filters[n]
+				m := map[string]any{"type": "string"}
+				if len(f.Enum) > 0 {
+					m["enum"] = f.Enum
+				}
+				props[n] = m
+			}
+			variants = append(variants, map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"next":  map[string]any{"const": "navigate"},
+					"route": map[string]any{"const": r.Path},
+					"filters": map[string]any{
+						"type": "object", "properties": props, "additionalProperties": false,
+					},
+					"reason": map[string]any{"type": "string"},
+				},
+				"required":             []string{"next", "route", "filters", "reason"},
+				"additionalProperties": false,
+			})
+		}
+	}
+
 	// finish は最後に置く。先頭に置くと最も単純な分岐へ流れやすい。
 	if allowFinish {
 		variants = append(variants, map[string]any{
