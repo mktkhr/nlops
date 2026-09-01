@@ -2,6 +2,7 @@ package svc
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -50,6 +51,49 @@ func TestPageMetaHasNext(t *testing.T) {
 		}
 		if m["total"] != tt.total {
 			t.Errorf("%s: total は該当総件数であるべき: %v", tt.name, m["total"])
+		}
+	}
+}
+
+func TestOrderBy(t *testing.T) {
+	allowed := Sortable{
+		"ordered_at_asc":    "ordered_at ASC",
+		"total_amount_desc": "total_amount DESC",
+	}
+	const def, tie = "ordered_at DESC", "order_id"
+
+	tests := []struct {
+		query string
+		want  string
+	}{
+		{"", "ORDER BY ordered_at DESC, order_id DESC"},
+		{"?sort=ordered_at_asc", "ORDER BY ordered_at ASC, order_id ASC"},
+		{"?sort=total_amount_desc", "ORDER BY total_amount DESC, order_id DESC"},
+		// 向きを欠いた値は許可リストに無いので既定へ落ちる。
+		// sort と order を分けていたときは、ここが呼び出し側の想定と食い違った。
+		{"?sort=total_amount", "ORDER BY ordered_at DESC, order_id DESC"},
+		// 許可リストに無い列は SQL に到達しない。LLM は enum で縛っているが
+		// API は直接叩けるので、サービス側でも落とす。
+		{"?sort=1%3BDROP+TABLE+orders", "ORDER BY ordered_at DESC, order_id DESC"},
+		{"?sort=password", "ORDER BY ordered_at DESC, order_id DESC"},
+	}
+	for _, tt := range tests {
+		got := OrderBy(httptest.NewRequest("GET", "/orders"+tt.query, nil), allowed, def, tie)
+		if got != tt.want {
+			t.Errorf("OrderBy(%q) = %q, 期待 %q", tt.query, got, tt.want)
+		}
+	}
+}
+
+func TestOrderByAlwaysTiebreaks(t *testing.T) {
+	// tiebreak が無いと、同値の行の並びが不定になる。
+	// ページ送りと組み合わせたとき、同じ行が 2 回出たり
+	// どのページにも出なかったりする。
+	allowed := Sortable{"amount_desc": "amount DESC"}
+	for _, q := range []string{"", "?sort=amount_desc", "?sort=unknown"} {
+		got := OrderBy(httptest.NewRequest("GET", "/invoices"+q, nil), allowed, "due_at ASC", "invoice_id")
+		if !strings.Contains(got, "invoice_id") {
+			t.Errorf("OrderBy(%q) = %q に tiebreak が無い", q, got)
 		}
 	}
 }

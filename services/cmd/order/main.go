@@ -87,10 +87,16 @@ func main() {
 		if region, _ := id.RegionFilter(name); region != "" {
 			w.Eq("region", region)
 		}
+		order := svc.OrderBy(r, svc.Sortable{
+			"ordered_at_asc":    "ordered_at ASC",
+			"ordered_at_desc":   "ordered_at DESC",
+			"total_amount_asc":  "total_amount ASC",
+			"total_amount_desc": "total_amount DESC",
+		}, "ordered_at DESC", "order_id")
 		return svc.ListPage(ctx, s.Pool, name,
 			"order_id, customer_id, status, ordered_at, total_amount",
 			"FROM orders.orders"+w.SQL(),
-			"ORDER BY ordered_at DESC, order_id DESC", svc.Pg(r), w.Args()...)
+			order, svc.Pg(r), w.Args()...)
 	})
 
 	s.Handle("GET /orders/{order_id}", func(ctx context.Context, id authctx.Identity, r *http.Request) (any, error) {

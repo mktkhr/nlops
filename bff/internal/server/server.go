@@ -436,12 +436,12 @@ func (s *Server) handleOrders(w http.ResponseWriter, r *http.Request) {
 		"offset": op.Offset, "limit": op.Limit})
 }
 
-// pageParams は画面からのページ指定をサービスへそのまま渡す形にする。
+// pageParams は画面からのページ指定と並べ替えをサービスへそのまま渡す。
 //
-// 上限や既定値の判断はサービス側 (svc.Pg) が持つ。BFF が独自の上限を
-// 持つと、サービスの制約と二重管理になってずれる。
+// 上限や既定値、並べ替えられる列の判断はサービス側 (svc.Pg / svc.OrderBy) が持つ。
+// BFF が独自の上限や許可リストを持つと二重管理になってずれる。
 func pageParams(r *http.Request, q url.Values) {
-	for _, k := range []string{"limit", "offset"} {
+	for _, k := range []string{"limit", "offset", "sort"} {
 		if v := r.URL.Query().Get(k); v != "" {
 			q.Set(k, v)
 		}

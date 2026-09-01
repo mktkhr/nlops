@@ -60,7 +60,7 @@ frontend/         React + MUI (pnpm + Vite+)
   src/features/     assistant / order / customer / audit
   src/shared/       api / ui / user
 eval/             評価ハーネス
-  golden/cases.json ゴールデンセット (171 ケース / 8 カテゴリ)
+  golden/cases.json ゴールデンセット (177 ケース / 9 カテゴリ)
   cmd/spike/        初手 Tool 選定だけを測る (サービス起動不要)
   cmd/evalrun/      Tool Loop 全体を測る (サービス起動が必要)
   cmd/mkcatalog/    スケール検証用カタログの生成

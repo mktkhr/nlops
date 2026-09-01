@@ -38,10 +38,18 @@ func main() {
 		if region, _ := id.RegionFilter(name); region != "" {
 			w.Eq("region", region)
 		}
+		// 並べ替えられる列は限る。LLM は enum で縛っているが、
+		// API は直接叩けるのでここでも検証する。
+		order := svc.OrderBy(r, svc.Sortable{
+			"customer_id_asc":  "customer_id ASC",
+			"customer_id_desc": "customer_id DESC",
+			"name_asc":         "name ASC",
+			"name_desc":        "name DESC",
+		}, "customer_id ASC", "customer_id")
 		return svc.ListPage(ctx, s.Pool, name,
 			"customer_id, name, region, status",
 			"FROM customer.customers"+w.SQL(),
-			"ORDER BY customer_id", svc.Pg(r), w.Args()...)
+			order, svc.Pg(r), w.Args()...)
 	})
 
 	s.Handle("GET /customers/{customer_id}", func(ctx context.Context, id authctx.Identity, r *http.Request) (any, error) {

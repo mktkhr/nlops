@@ -42,6 +42,16 @@
                   "WEST"
                 ],
                 "description": "担当地域"
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "customer_id_asc",
+                  "customer_id_desc",
+                  "name_asc",
+                  "name_desc"
+                ],
+                "description": "並べ替え。asc=昇順(古い/少ない/安い順) desc=降順(新しい/多い/高い順)。「一番〜」を聞かれたらこれを指定する。指定しない場合は customer_id の昇順"
               }
             },
             "required": []
@@ -196,6 +206,16 @@
               "ordered_to": {
                 "type": "string",
                 "description": "受注日の上限 (YYYY-MM-DD)"
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "ordered_at_asc",
+                  "ordered_at_desc",
+                  "total_amount_asc",
+                  "total_amount_desc"
+                ],
+                "description": "並べ替え。asc=昇順(古い/少ない/安い順) desc=降順(新しい/多い/高い順)。「一番〜」を聞かれたらこれを指定する。指定しない場合は ordered_at の降順 (新しい順)"
               }
             },
             "required": []
@@ -373,6 +393,16 @@
               "category": {
                 "type": "string",
                 "description": "カテゴリ名"
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "unit_price_asc",
+                  "unit_price_desc",
+                  "name_asc",
+                  "name_desc"
+                ],
+                "description": "並べ替え。asc=昇順(古い/少ない/安い順) desc=降順(新しい/多い/高い順)。「一番〜」を聞かれたらこれを指定する。指定しない場合は product_id の昇順"
               }
             },
             "required": []
@@ -496,6 +526,14 @@
               "warehouse_id": {
                 "type": "string",
                 "description": "倉庫ID。省略時は全倉庫。"
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "quantity_asc",
+                  "quantity_desc"
+                ],
+                "description": "並べ替え。asc=昇順(古い/少ない/安い順) desc=降順(新しい/多い/高い順)。「一番〜」を聞かれたらこれを指定する。指定しない場合は quantity の昇順 (少ない順)"
               }
             },
             "required": []
@@ -580,6 +618,14 @@
               "carrier": {
                 "type": "string",
                 "description": "配送業者コード"
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "shipped_at_asc",
+                  "shipped_at_desc"
+                ],
+                "description": "並べ替え。asc=昇順(古い/少ない/安い順) desc=降順(新しい/多い/高い順)。「一番〜」を聞かれたらこれを指定する。指定しない場合は shipment_id の昇順"
               }
             },
             "required": []
@@ -591,7 +637,8 @@
               "shipment_id",
               "order_id",
               "status",
-              "carrier"
+              "carrier",
+              "shipped_at"
             ],
             "max_items": 20
           }
@@ -718,6 +765,18 @@
               "issued_to": {
                 "type": "string",
                 "description": "発行日の上限 (YYYY-MM-DD)"
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "issued_at_asc",
+                  "issued_at_desc",
+                  "due_at_asc",
+                  "due_at_desc",
+                  "amount_asc",
+                  "amount_desc"
+                ],
+                "description": "並べ替え。asc=昇順(古い/少ない/安い順) desc=降順(新しい/多い/高い順)。「一番〜」を聞かれたらこれを指定する。指定しない場合は issued_at の降順"
               }
             },
             "required": []
@@ -814,6 +873,16 @@
               "customer_id": {
                 "type": "string",
                 "description": "顧客ID。省略時は全顧客。"
+              },
+              "sort": {
+                "type": "string",
+                "enum": [
+                  "due_at_asc",
+                  "due_at_desc",
+                  "amount_asc",
+                  "amount_desc"
+                ],
+                "description": "並べ替え。asc=昇順(古い/少ない/安い順) desc=降順(新しい/多い/高い順)。「一番〜」を聞かれたらこれを指定する。指定しない場合は due_at の昇順 (期限が早い順)"
               }
             },
             "required": []

@@ -18,10 +18,19 @@ import type { Order } from '../../shared/api/client'
 import { useResource } from '../../shared/api/useResource'
 import { PageHeader } from '../../shared/ui/PageHeader'
 import { Pager } from '../../shared/ui/Pager'
+import { SortableCell } from '../../shared/ui/SortableCell'
 import { usePaging } from '../../shared/ui/usePaging'
+import { useSorting } from '../../shared/ui/useSorting'
+import type { SortMap } from '../../shared/ui/useSorting'
 import { useUser } from '../../shared/user/user-context'
 
 const STATUSES = ['PLACED', 'CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED']
+
+// サービスが受け付ける値をそのまま使う。画面側で組み立て直さない。
+const SORTS: SortMap = {
+  orderedAt: { asc: 'ordered_at_asc', desc: 'ordered_at_desc' },
+  totalAmount: { asc: 'total_amount_asc', desc: 'total_amount_desc' },
+}
 
 export function OrderPage() {
   const { current, error: userError } = useUser()
@@ -33,6 +42,7 @@ export function OrderPage() {
   const customerId = params.get('customer_id') ?? ''
 
   const { limit, offset, setPage, resetOffset } = usePaging()
+  const { sort, dirOf, toggle } = useSorting(SORTS)
 
   // 絞り込みを変えたらページ位置を落とす。8 ページ目のまま絞り込むと
   // 該当が 3 ページしかなくても「0 件」に見える。
@@ -45,7 +55,7 @@ export function OrderPage() {
 
   const userId = current?.userId ?? ''
   const { items, count, error, loading } = useResource<Order>(
-    `${userId}|${status}|${customerName}|${customerId}|${limit}|${offset}`,
+    `${userId}|${status}|${customerName}|${customerId}|${limit}|${offset}|${sort}`,
     () =>
       userId
         ? fetchOrders(userId, {
@@ -54,6 +64,7 @@ export function OrderPage() {
             customer_id: customerId,
             limit,
             offset,
+            sort,
           })
         : Promise.resolve({ items: [] }),
   )
@@ -115,8 +126,17 @@ export function OrderPage() {
                 <TableCell>注文ID</TableCell>
                 <TableCell>顧客</TableCell>
                 <TableCell>状態</TableCell>
-                <TableCell>受注日</TableCell>
-                <TableCell align="right">金額</TableCell>
+                <SortableCell col="orderedAt" dir={dirOf('orderedAt')} onToggle={toggle}>
+                  受注日
+                </SortableCell>
+                <SortableCell
+                  col="totalAmount"
+                  dir={dirOf('totalAmount')}
+                  onToggle={toggle}
+                  align="right"
+                >
+                  金額
+                </SortableCell>
               </TableRow>
             </TableHead>
             <TableBody>

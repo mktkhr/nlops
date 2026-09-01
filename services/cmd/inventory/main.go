@@ -30,10 +30,16 @@ func main() {
 		w := &svc.W{}
 		w.Like("name", svc.Q(r, "keyword"))
 		w.Like("category", svc.Q(r, "category"))
+		order := svc.OrderBy(r, svc.Sortable{
+			"unit_price_asc":  "unit_price ASC",
+			"unit_price_desc": "unit_price DESC",
+			"name_asc":        "name ASC",
+			"name_desc":       "name DESC",
+		}, "product_id ASC", "product_id")
 		return svc.ListPage(ctx, s.Pool, name,
 			"product_id, name, category, unit_price",
 			"FROM inventory.products"+w.SQL(),
-			"ORDER BY product_id", svc.Pg(r), w.Args()...)
+			order, svc.Pg(r), w.Args()...)
 	})
 
 	s.Handle("GET /products/{product_id}", func(ctx context.Context, _ authctx.Identity, r *http.Request) (any, error) {
@@ -77,10 +83,14 @@ func main() {
 		w := &svc.W{}
 		w.Lte("s.quantity", threshold)
 		w.Eq("s.warehouse_id", svc.Q(r, "warehouse_id"))
+		order := svc.OrderBy(r, svc.Sortable{
+			"quantity_asc":  "s.quantity ASC",
+			"quantity_desc": "s.quantity DESC",
+		}, "s.quantity ASC", "s.product_id")
 		return svc.ListPage(ctx, s.Pool, name,
 			"s.product_id, p.name AS product_name, s.warehouse_id, s.quantity",
 			"FROM inventory.stock s JOIN inventory.products p ON p.product_id = s.product_id"+w.SQL(),
-			"ORDER BY s.quantity, s.product_id", svc.Pg(r), w.Args()...)
+			order, svc.Pg(r), w.Args()...)
 	})
 
 	// 在庫数の調整。増減ではなく絶対値で受ける。

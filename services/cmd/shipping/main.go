@@ -71,10 +71,16 @@ func main() {
 		if region, _ := id.RegionFilter(name); region != "" {
 			w.Eq("region", region)
 		}
+		order := svc.OrderBy(r, svc.Sortable{
+			"shipped_at_asc":  "shipped_at ASC",
+			"shipped_at_desc": "shipped_at DESC",
+		}, "shipment_id ASC", "shipment_id")
+		// shipped_at を返すのは、並べ替えの根拠をモデルにも見せるため。
+		// 見えない列で並べると「一番古い」と言われても検算できない。
 		return svc.ListPage(ctx, s.Pool, name,
-			"shipment_id, order_id, status, carrier",
+			"shipment_id, order_id, status, carrier, shipped_at",
 			"FROM shipping.shipments"+w.SQL(),
-			"ORDER BY shipment_id", svc.Pg(r), w.Args()...)
+			order, svc.Pg(r), w.Args()...)
 	})
 
 	s.Handle("GET /shipments/{shipment_id}/tracking", func(ctx context.Context, id authctx.Identity, r *http.Request) (any, error) {

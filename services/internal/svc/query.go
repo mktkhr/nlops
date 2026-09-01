@@ -2,6 +2,7 @@ package svc
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 )
 
@@ -84,4 +85,35 @@ func (w *W) In(col string, vs []string) *W {
 	}
 	w.conds = append(w.conds, fmt.Sprintf("%s IN (%s)", col, strings.Join(ph, ", ")))
 	return w
+}
+
+// Sortable は並べ替えを許す指定。
+// キーが API から渡される値、値が ORDER BY に置く SQL 式 ("ordered_at DESC")。
+//
+// **向きを列と分けない。** sort と order を別々の引数にすると
+// 「sort だけ指定された」状態が生まれ、向きが呼び出し側の想定と食い違う
+// (実測: モデルが sort=total_amount だけを指定してきた)。
+// 1 つの enum に畳んで、曖昧な状態そのものを作れなくする。
+//
+// SQL 式を呼び出し側リテラルだけに限るための型でもある。
+// 受け取った文字列をそのまま ORDER BY へ入れてはいけない。
+type Sortable map[string]string
+
+// OrderBy はクエリパラメータから ORDER BY 句を組み立てる。
+//
+//   - 許可リストに無い sort は既定へ落とす。LLM 側は enum (GBNF) で
+//     生成できないようにしてあるが、API は直接叩ける。ここが最後の砦。
+//   - **必ず主キーで tiebreak する。** 同値の並びが不定だと、ページ送りで
+//     同じ行が 2 回出たり、どのページにも出なかったりする。
+//     並べ替えを入れる以上、これが無いとページ送りが壊れる。
+func OrderBy(r *http.Request, allowed Sortable, def, tiebreak string) string {
+	expr, ok := allowed[Q(r, "sort")]
+	if !ok {
+		expr = def
+	}
+	dir := "ASC"
+	if strings.HasSuffix(strings.ToUpper(expr), "DESC") {
+		dir = "DESC"
+	}
+	return fmt.Sprintf("ORDER BY %s, %s %s", expr, tiebreak, dir)
 }

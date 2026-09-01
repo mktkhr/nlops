@@ -19,8 +19,17 @@ import type { Customer } from '../../shared/api/client'
 import { useResource } from '../../shared/api/useResource'
 import { PageHeader } from '../../shared/ui/PageHeader'
 import { Pager } from '../../shared/ui/Pager'
+import { SortableCell } from '../../shared/ui/SortableCell'
 import { usePaging } from '../../shared/ui/usePaging'
+import { useSorting } from '../../shared/ui/useSorting'
+import type { SortMap } from '../../shared/ui/useSorting'
 import { useUser } from '../../shared/user/user-context'
+
+// サービスが受け付ける値をそのまま使う。
+const SORTS: SortMap = {
+  customerId: { asc: 'customer_id_asc', desc: 'customer_id_desc' },
+  name: { asc: 'name_asc', desc: 'name_desc' },
+}
 
 export function CustomerPage() {
   const { current, error: userError } = useUser()
@@ -30,6 +39,7 @@ export function CustomerPage() {
   const region = params.get('region') ?? ''
 
   const { limit, offset, setPage, resetOffset } = usePaging()
+  const { sort, dirOf, toggle } = useSorting(SORTS)
 
   // 絞り込みを変えたらページ位置を落とす (OrderPage と同じ理由)。
   const setFilter = (key: string, value: string) => {
@@ -41,10 +51,10 @@ export function CustomerPage() {
 
   const userId = current?.userId ?? ''
   const { items, count, error, loading } = useResource<Customer>(
-    `${userId}|${name}|${region}|${limit}|${offset}`,
+    `${userId}|${name}|${region}|${limit}|${offset}|${sort}`,
     () =>
       userId
-        ? fetchCustomers(userId, { name, region, limit, offset })
+        ? fetchCustomers(userId, { name, region, limit, offset, sort })
         : Promise.resolve({ items: [] }),
   )
 
@@ -91,8 +101,12 @@ export function CustomerPage() {
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>顧客ID</TableCell>
-                <TableCell>氏名</TableCell>
+                <SortableCell col="customerId" dir={dirOf('customerId')} onToggle={toggle}>
+                  顧客ID
+                </SortableCell>
+                <SortableCell col="name" dir={dirOf('name')} onToggle={toggle}>
+                  氏名
+                </SortableCell>
                 <TableCell>担当地域</TableCell>
                 <TableCell>状態</TableCell>
               </TableRow>

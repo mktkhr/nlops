@@ -33,10 +33,16 @@ func main() {
 			w.Eq("region", region)
 		}
 		w.Raw(`status IN ('ISSUED','OVERDUE')`)
+		order := svc.OrderBy(r, svc.Sortable{
+			"due_at_asc":  "due_at ASC",
+			"due_at_desc": "due_at DESC",
+			"amount_asc":  "amount ASC",
+			"amount_desc": "amount DESC",
+		}, "due_at ASC", "invoice_id")
 		return svc.ListPage(ctx, s.Pool, name,
 			"invoice_id, customer_id, status, due_at, amount",
 			"FROM billing.invoices"+w.SQL(),
-			"ORDER BY due_at, invoice_id", svc.Pg(r), w.Args()...)
+			order, svc.Pg(r), w.Args()...)
 	})
 
 	s.Handle("GET /invoices", func(ctx context.Context, id authctx.Identity, r *http.Request) (any, error) {
@@ -48,10 +54,18 @@ func main() {
 		if region, _ := id.RegionFilter(name); region != "" {
 			w.Eq("region", region)
 		}
+		order := svc.OrderBy(r, svc.Sortable{
+			"issued_at_asc":  "issued_at ASC",
+			"issued_at_desc": "issued_at DESC",
+			"due_at_asc":     "due_at ASC",
+			"due_at_desc":    "due_at DESC",
+			"amount_asc":     "amount ASC",
+			"amount_desc":    "amount DESC",
+		}, "issued_at DESC", "invoice_id")
 		return svc.ListPage(ctx, s.Pool, name,
 			"invoice_id, customer_id, status, issued_at, due_at, amount",
 			"FROM billing.invoices"+w.SQL(),
-			"ORDER BY issued_at DESC, invoice_id", svc.Pg(r), w.Args()...)
+			order, svc.Pg(r), w.Args()...)
 	})
 
 	s.Handle("GET /invoices/{invoice_id}", func(ctx context.Context, id authctx.Identity, r *http.Request) (any, error) {

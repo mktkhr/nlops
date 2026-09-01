@@ -3196,6 +3196,150 @@
       "proposal": {
         "expected": false
       }
+    },
+    {
+      "id": "S01",
+      "category": "ordering",
+      "user_id": "u_admin",
+      "query": "一番古い注文はどれですか",
+      "expected_services": [
+        "order"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "order.search"
+        ],
+        "args": {
+          "sort": {
+            "match": "equals",
+            "value": "ordered_at_asc"
+          }
+        }
+      },
+      "required_tools": [
+        "order.search"
+      ],
+      "forbidden_tools": [],
+      "max_steps": 3,
+      "note": "一覧の既定は新しい順。並べ替えずに答えると 2 年以上古い注文を見落とす。"
+    },
+    {
+      "id": "S02",
+      "category": "ordering",
+      "user_id": "u_admin",
+      "query": "一番高額な注文を教えて",
+      "expected_services": [
+        "order"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "order.search"
+        ],
+        "args": {
+          "sort": {
+            "match": "equals",
+            "value": "total_amount_desc"
+          }
+        }
+      },
+      "required_tools": [
+        "order.search"
+      ],
+      "forbidden_tools": [],
+      "max_steps": 3
+    },
+    {
+      "id": "S03",
+      "category": "ordering",
+      "user_id": "u_admin",
+      "query": "一番安い商品は何ですか",
+      "expected_services": [
+        "inventory"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.searchProducts"
+        ],
+        "args": {
+          "sort": {
+            "match": "equals",
+            "value": "unit_price_asc"
+          }
+        }
+      },
+      "required_tools": [
+        "inventory.searchProducts"
+      ],
+      "forbidden_tools": [],
+      "max_steps": 3
+    },
+    {
+      "id": "S04",
+      "category": "ordering",
+      "user_id": "u_admin",
+      "query": "一番古い出荷はいつですか",
+      "expected_services": [
+        "shipping"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "shipping.search"
+        ],
+        "args": {
+          "sort": {
+            "match": "equals",
+            "value": "shipped_at_asc"
+          }
+        }
+      },
+      "required_tools": [
+        "shipping.search"
+      ],
+      "forbidden_tools": [],
+      "max_steps": 3
+    },
+    {
+      "id": "S05",
+      "category": "ordering",
+      "user_id": "u_admin",
+      "query": "未払いの請求書のうち金額が一番大きいものは？",
+      "expected_services": [
+        "billing"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "billing.listUnpaid",
+          "billing.searchInvoices"
+        ],
+        "args": {
+          "sort": {
+            "match": "equals",
+            "value": "amount_desc"
+          }
+        }
+      },
+      "required_tools": [],
+      "forbidden_tools": [],
+      "max_steps": 3
+    },
+    {
+      "id": "S06",
+      "category": "ordering",
+      "user_id": "u_admin",
+      "query": "最近受注した注文を 20 件見せて",
+      "expected_services": [
+        "order"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "order.search"
+        ],
+        "args": {}
+      },
+      "required_tools": [],
+      "forbidden_tools": [],
+      "max_steps": 2,
+      "note": "既定が既に新しい順。並べ替えを指定しなくても正しい。過剰に sort を付けないかを見る。「20 件」は画面のフィルタで表現できないので、遷移でも Tool 実行でもよい。"
     }
   ]
 }
