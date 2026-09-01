@@ -17,7 +17,8 @@ import { fetchOrders } from '../../shared/api/client'
 import type { Order } from '../../shared/api/client'
 import { useResource } from '../../shared/api/useResource'
 import { PageHeader } from '../../shared/ui/PageHeader'
-import { ResultCount } from '../../shared/ui/ResultCount'
+import { Pager } from '../../shared/ui/Pager'
+import { usePaging } from '../../shared/ui/usePaging'
 import { useUser } from '../../shared/user/user-context'
 
 const STATUSES = ['PLACED', 'CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED']
@@ -31,22 +32,28 @@ export function OrderPage() {
   const customerName = params.get('customer_name') ?? ''
   const customerId = params.get('customer_id') ?? ''
 
+  const { limit, offset, setPage, resetOffset } = usePaging()
+
+  // 絞り込みを変えたらページ位置を落とす。8 ページ目のまま絞り込むと
+  // 該当が 3 ページしかなくても「0 件」に見える。
   const setFilter = (key: string, value: string) => {
     const next = new URLSearchParams(params)
     if (value) next.set(key, value)
     else next.delete(key)
-    setParams(next, { replace: true })
+    setParams(resetOffset(next), { replace: true })
   }
 
   const userId = current?.userId ?? ''
-  const { items, count, hasMore, error, loading } = useResource<Order>(
-    `${userId}|${status}|${customerName}|${customerId}`,
+  const { items, count, error, loading } = useResource<Order>(
+    `${userId}|${status}|${customerName}|${customerId}|${limit}|${offset}`,
     () =>
       userId
         ? fetchOrders(userId, {
             status,
             customer_name: customerName,
             customer_id: customerId,
+            limit,
+            offset,
           })
         : Promise.resolve({ items: [] }),
   )
@@ -101,7 +108,6 @@ export function OrderPage() {
 
       <Paper variant="outlined">
         {loading && <LinearProgress />}
-        <ResultCount count={count} shown={items.length} hasMore={hasMore} unit="件" />
         <TableContainer>
           <Table size="small">
             <TableHead>
@@ -140,6 +146,7 @@ export function OrderPage() {
             </TableBody>
           </Table>
         </TableContainer>
+        <Pager count={count} limit={limit} offset={offset} onChange={setPage} />
       </Paper>
     </Box>
   )

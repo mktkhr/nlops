@@ -74,7 +74,7 @@ func main() {
 		return svc.ListPage(ctx, s.Pool, name,
 			"shipment_id, order_id, status, carrier",
 			"FROM shipping.shipments"+w.SQL(),
-			"ORDER BY shipment_id", svc.Limit(r), w.Args()...)
+			"ORDER BY shipment_id", svc.Pg(r), w.Args()...)
 	})
 
 	s.Handle("GET /shipments/{shipment_id}/tracking", func(ctx context.Context, id authctx.Identity, r *http.Request) (any, error) {

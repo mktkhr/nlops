@@ -90,7 +90,7 @@ func main() {
 		return svc.ListPage(ctx, s.Pool, name,
 			"order_id, customer_id, status, ordered_at, total_amount",
 			"FROM orders.orders"+w.SQL(),
-			"ORDER BY ordered_at DESC, order_id DESC", svc.Limit(r), w.Args()...)
+			"ORDER BY ordered_at DESC, order_id DESC", svc.Pg(r), w.Args()...)
 	})
 
 	s.Handle("GET /orders/{order_id}", func(ctx context.Context, id authctx.Identity, r *http.Request) (any, error) {
@@ -125,7 +125,7 @@ func main() {
 		return svc.ListPage(ctx, s.Pool, name,
 			"product_id, product_name, quantity, unit_price",
 			"FROM orders.order_items WHERE order_id = $1",
-			"ORDER BY line_no", svc.Limit(r), oid)
+			"ORDER BY line_no", svc.Pg(r), oid)
 	})
 
 	// 注文のキャンセル。キャンセルできる状態かどうかの判断はこのサービスの責務。

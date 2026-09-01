@@ -36,7 +36,7 @@ func main() {
 		return svc.ListPage(ctx, s.Pool, name,
 			"invoice_id, customer_id, status, due_at, amount",
 			"FROM billing.invoices"+w.SQL(),
-			"ORDER BY due_at, invoice_id", svc.Limit(r), w.Args()...)
+			"ORDER BY due_at, invoice_id", svc.Pg(r), w.Args()...)
 	})
 
 	s.Handle("GET /invoices", func(ctx context.Context, id authctx.Identity, r *http.Request) (any, error) {
@@ -51,7 +51,7 @@ func main() {
 		return svc.ListPage(ctx, s.Pool, name,
 			"invoice_id, customer_id, status, issued_at, due_at, amount",
 			"FROM billing.invoices"+w.SQL(),
-			"ORDER BY issued_at DESC, invoice_id", svc.Limit(r), w.Args()...)
+			"ORDER BY issued_at DESC, invoice_id", svc.Pg(r), w.Args()...)
 	})
 
 	s.Handle("GET /invoices/{invoice_id}", func(ctx context.Context, id authctx.Identity, r *http.Request) (any, error) {

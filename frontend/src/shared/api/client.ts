@@ -122,24 +122,29 @@ export async function fetchUsers(): Promise<{ items: User[] }> {
   return (await res.json()) as { items: User[] }
 }
 
+// 空文字の絞り込みは送らない。サービス側で「空文字に一致する行」を
+// 探しに行かせないため。
+function queryOf(params: Record<string, string | number>): string {
+  const q = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v === '' || v === undefined || v === null) continue
+    q.set(k, String(v))
+  }
+  return q.toString()
+}
+
 export function fetchOrders(
   userId: string,
-  params: Record<string, string>,
+  params: Record<string, string | number>,
 ): Promise<{ items: Order[]; count: number; hasMore: boolean }> {
-  const q = new URLSearchParams(
-    Object.entries(params).filter(([, v]) => v !== ''),
-  )
-  return get(`/api/orders?${q.toString()}`, userId)
+  return get(`/api/orders?${queryOf(params)}`, userId)
 }
 
 export function fetchCustomers(
   userId: string,
-  params: Record<string, string>,
+  params: Record<string, string | number>,
 ): Promise<{ items: Customer[]; count: number; hasMore: boolean }> {
-  const q = new URLSearchParams(
-    Object.entries(params).filter(([, v]) => v !== ''),
-  )
-  return get(`/api/customers?${q.toString()}`, userId)
+  return get(`/api/customers?${queryOf(params)}`, userId)
 }
 
 /**

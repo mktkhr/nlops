@@ -41,7 +41,7 @@ func main() {
 		return svc.ListPage(ctx, s.Pool, name,
 			"customer_id, name, region, status",
 			"FROM customer.customers"+w.SQL(),
-			"ORDER BY customer_id", svc.Limit(r), w.Args()...)
+			"ORDER BY customer_id", svc.Pg(r), w.Args()...)
 	})
 
 	s.Handle("GET /customers/{customer_id}", func(ctx context.Context, id authctx.Identity, r *http.Request) (any, error) {
@@ -67,7 +67,7 @@ func main() {
 		return svc.ListPage(ctx, s.Pool, name,
 			"contact_id, name, role, email",
 			"FROM customer.contacts WHERE customer_id = $1",
-			"ORDER BY contact_id", svc.Limit(r), cid)
+			"ORDER BY contact_id", svc.Pg(r), cid)
 	})
 
 	// 与信「区分」と「限度額」。実際の未払い残高は billing の責務。

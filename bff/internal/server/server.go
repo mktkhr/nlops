@@ -361,6 +361,7 @@ func (s *Server) handleOrders(w http.ResponseWriter, r *http.Request) {
 			q.Set(k, v)
 		}
 	}
+	pageParams(r, q)
 
 	// 顧客名は customer サービスが持つ。氏名でフィルタする場合はここで ID へ
 	// 解決し、**その ID 集合を注文サービスへ渡す**。
@@ -388,7 +389,8 @@ func (s *Server) handleOrders(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if len(cust.Items) == 0 {
-			writeJSON(w, http.StatusOK, map[string]any{"items": []any{}, "count": 0, "hasMore": false})
+			writeJSON(w, http.StatusOK, map[string]any{
+				"items": []any{}, "count": 0, "hasMore": false, "offset": 0, "limit": 0})
 			return
 		}
 		for _, c := range cust.Items {
@@ -430,7 +432,20 @@ func (s *Server) handleOrders(w http.ResponseWriter, r *http.Request) {
 	}
 	// count は該当総件数。items はその 1 ページ分でしかない。
 	writeJSON(w, http.StatusOK, map[string]any{
-		"items": items, "count": op.Count, "hasMore": op.HasMore})
+		"items": items, "count": op.Count, "hasMore": op.HasMore,
+		"offset": op.Offset, "limit": op.Limit})
+}
+
+// pageParams は画面からのページ指定をサービスへそのまま渡す形にする。
+//
+// 上限や既定値の判断はサービス側 (svc.Pg) が持つ。BFF が独自の上限を
+// 持つと、サービスの制約と二重管理になってずれる。
+func pageParams(r *http.Request, q url.Values) {
+	for _, k := range []string{"limit", "offset"} {
+		if v := r.URL.Query().Get(k); v != "" {
+			q.Set(k, v)
+		}
+	}
 }
 
 // maxResolve は氏名から顧客 ID を引くときの上限。
@@ -483,6 +498,7 @@ func (s *Server) handleCustomers(w http.ResponseWriter, r *http.Request) {
 			q.Set(k, v)
 		}
 	}
+	pageParams(r, q)
 	cp, code, err := s.fetchPage(r.Context(), id, "customer", "/customers", q)
 	if err != nil {
 		writeErr(w, code, err.Error())
@@ -503,13 +519,16 @@ func (s *Server) handleCustomers(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"items": items, "count": cp.Count, "hasMore": cp.HasMore})
+		"items": items, "count": cp.Count, "hasMore": cp.HasMore,
+		"offset": cp.Offset, "limit": cp.Limit})
 }
 
 // page は一覧 API の 1 ページ分。Count は返した行数ではなく該当総件数。
 type page struct {
 	Items   []map[string]any `json:"items"`
 	Count   int              `json:"count"`
+	Offset  int              `json:"offset"`
+	Limit   int              `json:"limit"`
 	HasMore bool             `json:"has_more"`
 }
 
