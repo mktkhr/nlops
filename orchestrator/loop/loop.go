@@ -55,6 +55,14 @@ type Options struct {
 
 	// OnStep は 1 ステップ完了ごとに呼ばれる。BFF が進捗をストリームするために使う。
 	OnStep func(Step)
+
+	// ForceFirst が設定されていると、その Tool 呼び出しをモデルが選んだことにして
+	// step 1 として実行し、以降は通常どおり Loop を回す。
+	//
+	// 「間違った Tool を選んでしまった後に戻れるか」を測るための計測器。
+	// 選定精度が高いと誤選択が自然発生しないので、回復挙動だけを切り離して
+	// 観測できない。**検証専用であり、通常運用では使わない。**
+	ForceFirst *executor.Call
 }
 
 // Navigation は LLM が生成した画面の状態。
@@ -238,7 +246,38 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 	// 繰り返して進捗しない失敗を実測したため、2 回目以降は実行せず差し戻す。
 	seenCalls := map[string]bool{}
 
-	for i := 1; i <= opt.MaxSteps; i++ {
+	// 検証用: 間違った Tool を踏んだ状態から Loop を始める。
+	// モデルが自分で選んだときと履歴の形を揃えないと、回復挙動が変わってしまう。
+	startAt := 1
+	if opt.ForceFirst != nil {
+		call := *opt.ForceFirst
+		res := r.Executor.Execute(ctx, id, call)
+		step := Step{Iteration: 1, Tool: call.Tool, Arguments: call.Arguments, Result: &res, Forced: true}
+		tr.RawBytes += res.RawBytes
+		tr.ProjBytes += res.ProjBytes
+		if res.Denied {
+			tr.Denied = true
+		}
+		if res.Error == "" {
+			executed = true
+		}
+		if barrenResult(res) {
+			barren++
+		}
+		seenCalls[callSignature(call.Tool, call.Arguments)] = true
+		tr.Steps = append(tr.Steps, step)
+		emit(opt, step)
+		decision, _ := json.Marshal(map[string]any{
+			"next": "tool", "tool": call.Tool, "arguments": call.Arguments,
+			"reason": "対象を確認します。",
+		})
+		msgs = append(msgs,
+			llm.Message{Role: "assistant", Content: string(decision)},
+			llm.Message{Role: "user", Content: renderResult(call.Tool, res, 1, opt.MaxSteps)})
+		startAt = 2
+	}
+
+	for i := startAt; i <= opt.MaxSteps; i++ {
 		step := Step{Iteration: i}
 		schema := prompt.LoopSchema(tools, routes, opt.StrictArgs, executed)
 		switch {

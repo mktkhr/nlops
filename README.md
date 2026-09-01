@@ -10,6 +10,7 @@ Input Adapter** として使えるかを検証する。
 - スパイク結果: [docs/spike-report.md](docs/spike-report.md)
 - PoC 判定: [docs/result.md](docs/result.md)
 - スケール検証: [docs/scale-report.md](docs/scale-report.md)
+- 誤 Tool からの回復: [docs/recovery-report.md](docs/recovery-report.md)
 
 ## 構成
 
@@ -63,6 +64,9 @@ eval/             評価ハーネス
   cmd/spike/        初手 Tool 選定だけを測る (サービス起動不要)
   cmd/evalrun/      Tool Loop 全体を測る (サービス起動が必要)
   cmd/mkcatalog/    スケール検証用カタログの生成
+  golden/recovery.json 誤 Tool を踏ませたときの回復を測るケース (16 件)
+  cmd/decoystub/    ダミーサービスの応答スタブ (down / error / plausible)
+  cmd/recovery/     誤 Tool からの回復・汚染を測る
 ```
 
 ## 動かす

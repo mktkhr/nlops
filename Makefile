@@ -14,7 +14,7 @@ export NLOPS_DSN = $(DSN)
 
 PSQL = docker exec -i -e PGPASSWORD=$(PG_PASSWORD) $(PG_CONTAINER) psql -U $(PG_USER) -d $(PG_DB) -v ON_ERROR_STOP=1 -q
 
-.PHONY: build db db-bulk services stop bff web test fmt secrets cert up down reset logs ps
+.PHONY: build db db-bulk services stop bff web recovery test fmt secrets cert up down reset logs ps
 build:
 	cd pkg && go build ./...
 	cd services && go build -o ../bin/ ./cmd/...
@@ -49,6 +49,18 @@ web:
 stop:
 	@for s in customer order inventory shipping billing bff; do \
 		[ -f .run/$$s.pid ] && kill $$(cat .run/$$s.pid) 2>/dev/null; rm -f .run/$$s.pid; done; echo stopped
+
+# 誤った Tool を踏んだ後の回復を測る (docs/recovery-report.md)
+# モックサービスの起動が必要。MODE=down のときはスタブを起動しない。
+MODE ?= plausible
+recovery: build
+	@if [ "$(MODE)" != "down" ]; then \
+		./bin/decoystub -catalog catalog/scale/services-124.json -mode $(MODE) & \
+		sleep 1; \
+	fi
+	@./bin/recovery -mode $(MODE) || true
+	@P=$$(ss -lptn 'sport = :9199' 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2); \
+		[ -n "$$P" ] && kill $$P || true
 
 test:
 	@for m in pkg services orchestrator eval bff; do (cd $$m && go test ./...); done

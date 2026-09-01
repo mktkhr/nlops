@@ -1,0 +1,243 @@
+{
+  "note": "間違った Tool を踏んだ後に戻れるかを測る。first の Tool を強制的に実行させてから Loop を回す。expect_tools のいずれかに到達すれば回復。R11 以降はダミーの返却フィールド名が質問の答えと衝突するケース (仮説: 名前が一致すると値をそのまま採用してしまう)。",
+  "cases": [
+    {
+      "id": "R01",
+      "user_id": "u_admin",
+      "query": "田中太郎さんの注文を見せて",
+      "first": {
+        "tool": "procurement.searchPurchaseOrders",
+        "arguments": {
+          "status": "ORDERED"
+        }
+      },
+      "expect_tools": [
+        "order.search",
+        "customer.search"
+      ],
+      "note": "受注 (order) と発注 (procurement) の取り違え"
+    },
+    {
+      "id": "R02",
+      "user_id": "u_admin",
+      "query": "未払いの請求書を出して",
+      "first": {
+        "tool": "accounting.searchJournalEntries",
+        "arguments": {}
+      },
+      "expect_tools": [
+        "billing.listUnpaid",
+        "billing.searchInvoices"
+      ],
+      "note": "請求 (billing) と仕訳 (accounting) の取り違え"
+    },
+    {
+      "id": "R03",
+      "user_id": "u_admin",
+      "query": "在庫が少ない商品を教えて",
+      "first": {
+        "tool": "warehouseops.searchTasks",
+        "arguments": {}
+      },
+      "expect_tools": [
+        "inventory.listLowStock",
+        "inventory.searchProducts"
+      ],
+      "note": "在庫数 (inventory) と倉庫作業 (warehouseops) の取り違え"
+    },
+    {
+      "id": "R04",
+      "user_id": "u_admin",
+      "query": "配送に失敗した出荷を見せて",
+      "first": {
+        "tool": "logistics.listDelayedTrips",
+        "arguments": {}
+      },
+      "expect_tools": [
+        "shipping.search"
+      ],
+      "note": "個別出荷 (shipping) と輸送計画 (logistics) の取り違え"
+    },
+    {
+      "id": "R05",
+      "user_id": "u_admin",
+      "query": "田中という名前の顧客を探して",
+      "first": {
+        "tool": "contract.searchContracts",
+        "arguments": {}
+      },
+      "expect_tools": [
+        "customer.search"
+      ],
+      "note": "顧客属性 (customer) と契約 (contract) の取り違え"
+    },
+    {
+      "id": "R06",
+      "user_id": "u_admin",
+      "query": "注文 O-1002 の状況を教えて",
+      "first": {
+        "tool": "support.searchTickets",
+        "arguments": {}
+      },
+      "expect_tools": [
+        "order.get",
+        "order.search",
+        "shipping.getStatus"
+      ],
+      "note": "注文内容 (order) と問い合わせ (support) の取り違え"
+    },
+    {
+      "id": "R07",
+      "user_id": "u_admin",
+      "query": "商品 P001 の単価を教えて",
+      "first": {
+        "tool": "pricing.getPriceList",
+        "arguments": {}
+      },
+      "expect_tools": [
+        "inventory.getProduct",
+        "inventory.searchProducts"
+      ],
+      "note": "商品マスタの標準単価 (inventory) と価格ルール (pricing) の取り違え"
+    },
+    {
+      "id": "R08",
+      "user_id": "u_admin",
+      "query": "顧客 C001 の連絡先を教えて",
+      "first": {
+        "tool": "hr.searchEmployees",
+        "arguments": {}
+      },
+      "expect_tools": [
+        "customer.get",
+        "customer.listContacts"
+      ],
+      "note": "業務的に遠いダミー。近いものより気づきやすいはず"
+    },
+    {
+      "id": "R09",
+      "user_id": "u_admin",
+      "query": "西日本の顧客の請求状況をまとめて",
+      "first": {
+        "tool": "accounting.getTrialBalance",
+        "arguments": {}
+      },
+      "expect_tools": [
+        "billing.searchInvoices",
+        "customer.search"
+      ],
+      "note": "サービス横断の途中で誤った場合"
+    },
+    {
+      "id": "R10",
+      "user_id": "u_admin",
+      "query": "出荷 S-3001 はいつ届きますか",
+      "first": {
+        "tool": "notification.searchDeliveries",
+        "arguments": {}
+      },
+      "expect_tools": [
+        "shipping.getDeliveryEstimate",
+        "shipping.getStatus",
+        "shipping.getTracking"
+      ],
+      "note": "delivery という語が両方に出る。語彙が衝突する例"
+    },
+    {
+      "id": "R11",
+      "user_id": "u_admin",
+      "query": "注文 O-1002 の合計金額はいくらですか",
+      "first": {
+        "tool": "procurement.getPurchaseOrder",
+        "arguments": {
+          "purchase_order_id": "PO-1"
+        }
+      },
+      "expect_tools": [
+        "order.get",
+        "order.search"
+      ],
+      "note": "衝突: total_amount。発注書も合計金額を持つ"
+    },
+    {
+      "id": "R12",
+      "user_id": "u_admin",
+      "query": "商品 P001 の在庫数を教えて",
+      "first": {
+        "tool": "warehouseops.getLocationContents",
+        "arguments": {
+          "location_id": "L-1"
+        }
+      },
+      "expect_tools": [
+        "inventory.getStock",
+        "inventory.searchProducts"
+      ],
+      "note": "衝突: quantity / product_name"
+    },
+    {
+      "id": "R13",
+      "user_id": "u_admin",
+      "query": "顧客 C001 の未収金はいくらですか",
+      "first": {
+        "tool": "accounting.getAccountBalance",
+        "arguments": {
+          "account_code": "1130"
+        }
+      },
+      "expect_tools": [
+        "billing.getOutstandingBalance",
+        "billing.searchInvoices"
+      ],
+      "note": "衝突: balance / amount。会計残高と顧客未収金"
+    },
+    {
+      "id": "R14",
+      "user_id": "u_admin",
+      "query": "商品 P001 を 3 個買うといくらですか",
+      "first": {
+        "tool": "pricing.getQuoteEstimate",
+        "arguments": {
+          "product_id": "P001",
+          "quantity": 3
+        }
+      },
+      "expect_tools": [
+        "inventory.getProduct",
+        "inventory.searchProducts"
+      ],
+      "note": "衝突: unit_price / total_amount / quantity。R07 と同じ機序を狙う"
+    },
+    {
+      "id": "R15",
+      "user_id": "u_admin",
+      "query": "仕入先ではなく顧客の田中さんの情報を見せて",
+      "first": {
+        "tool": "procurement.searchSuppliers",
+        "arguments": {
+          "name": "田中"
+        }
+      },
+      "expect_tools": [
+        "customer.search"
+      ],
+      "note": "衝突: name / category / status。質問文に否定の手がかりがある"
+    },
+    {
+      "id": "R16",
+      "user_id": "u_admin",
+      "query": "顧客 C001 の担当者のメールアドレスを教えて",
+      "first": {
+        "tool": "hr.getEmployee",
+        "arguments": {
+          "employee_id": "E-1"
+        }
+      },
+      "expect_tools": [
+        "customer.listContacts",
+        "customer.get"
+      ],
+      "note": "衝突: email / name。従業員と顧客窓口"
+    }
+  ]
+}
