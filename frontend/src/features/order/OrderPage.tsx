@@ -17,6 +17,7 @@ import { fetchOrders } from '../../shared/api/client'
 import type { Order } from '../../shared/api/client'
 import { useResource } from '../../shared/api/useResource'
 import { PageHeader } from '../../shared/ui/PageHeader'
+import { ResultCount } from '../../shared/ui/ResultCount'
 import { useUser } from '../../shared/user/user-context'
 
 const STATUSES = ['PLACED', 'CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED']
@@ -38,7 +39,7 @@ export function OrderPage() {
   }
 
   const userId = current?.userId ?? ''
-  const { items, error, loading } = useResource<Order>(
+  const { items, count, hasMore, error, loading } = useResource<Order>(
     `${userId}|${status}|${customerName}|${customerId}`,
     () =>
       userId
@@ -100,6 +101,7 @@ export function OrderPage() {
 
       <Paper variant="outlined">
         {loading && <LinearProgress />}
+        <ResultCount count={count} shown={items.length} hasMore={hasMore} unit="件" />
         <TableContainer>
           <Table size="small">
             <TableHead>

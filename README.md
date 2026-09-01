@@ -46,11 +46,12 @@ pkg/              共有パッケージ
   prompt/           プロンプトと JSON Schema の組み立て
   authctx/          ユーザー識別情報の伝播
 orchestrator/     Orchestrator
-  executor/         Tool → HTTP 変換 / 認証付与 / Projection / 未解決 ID の差し戻し
+  executor/         Tool → HTTP 変換 / 認証付与 / Projection / 未解決・曖昧 ID の差し戻し
   loop/             Tool Execution Loop
   cmd/orchctl/      CLI
 deploy/           コンテナ構成 (Nginx + BFF + 5 サービス + PostgreSQL)
 services/         モックマイクロサービス (5 サービス / 24 API)
+  schema/           DDL と seed。bulk/ は実規模のデータ (make db-bulk)
 bff/              Backend For Frontend (Presentation / Orchestration のみ)
   internal/audit/   トレースと更新承認の永続化 (audit schema を所有)
 frontend/         React + MUI (pnpm + Vite+)
@@ -58,7 +59,7 @@ frontend/         React + MUI (pnpm + Vite+)
   src/features/     assistant / order / customer / audit
   src/shared/       api / ui / user
 eval/             評価ハーネス
-  golden/cases.json ゴールデンセット (170 ケース / 8 カテゴリ)
+  golden/cases.json ゴールデンセット (171 ケース / 8 カテゴリ)
   cmd/spike/        初手 Tool 選定だけを測る (サービス起動不要)
   cmd/evalrun/      Tool Loop 全体を測る (サービス起動が必要)
   cmd/mkcatalog/    スケール検証用カタログの生成
@@ -76,7 +77,8 @@ make reset   # データも消して seed からやり直す
 ```
 
 ホストへ公開するのは Nginx の 8081 だけで、DB も BFF も各サービスも内部ネットワークに
-閉じる。DB は初回起動時に `services/schema/` の SQL が順に流れる。
+閉じる。DB は初回起動時に `services/schema/` の SQL が順に流れる
+(`bulk/` は流れない。実規模のデータが要るときは `make db-bulk`)。
 LLM はホストの llama-swap (`:11435`) をそのまま使う (VRAM を二重に消費しないため)。
 
 ポートを変えるなら `NLOPS_PORT=9000 make up`。
@@ -129,8 +131,12 @@ make up
 ## 使い方
 
 ```sh
-# 初回のみ: DB の作成と seed
+# 初回のみ: DB の作成と seed (最小データ)
 make db
+
+# 実運用に近い規模で試す場合 (顧客 5,006 / 注文 50,011 / 明細 99,906)
+# 既存の C001-C006 / O-1001.. はそのまま残るので、下の例はどちらでも動く
+make db-bulk
 
 # モックサービスの起動 (9101-9105)
 make services

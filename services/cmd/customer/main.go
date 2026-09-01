@@ -30,18 +30,18 @@ func main() {
 		w := &svc.W{}
 		w.Like("name", svc.Q(r, "name"))
 		w.Like("email", svc.Q(r, "email"))
+		// BFF が注文一覧に顧客名を添えるとき、返ってきた注文の顧客だけを引く。
+		// 顧客一覧の先頭 1 ページを取って突き合わせると、5,000 件では当たらない。
+		w.In("customer_id", svc.QList(r, "customer_ids", svc.MaxLimit))
 		w.Eq("status", svc.Q(r, "status"))
 		w.Eq("region", svc.Q(r, "region"))
 		if region, _ := id.RegionFilter(name); region != "" {
 			w.Eq("region", region)
 		}
-		rows, err := svc.Rows(ctx, s.Pool,
-			`SELECT customer_id, name, region, status FROM customer.customers`+
-				w.SQL()+` ORDER BY customer_id`, w.Args()...)
-		if err != nil {
-			return nil, err
-		}
-		return svc.ListOf("customer", rows), nil
+		return svc.ListPage(ctx, s.Pool, name,
+			"customer_id, name, region, status",
+			"FROM customer.customers"+w.SQL(),
+			"ORDER BY customer_id", svc.Limit(r), w.Args()...)
 	})
 
 	s.Handle("GET /customers/{customer_id}", func(ctx context.Context, id authctx.Identity, r *http.Request) (any, error) {
@@ -64,13 +64,10 @@ func main() {
 		if err := assertVisible(ctx, s, id, cid); err != nil {
 			return nil, err
 		}
-		rows, err := svc.Rows(ctx, s.Pool,
-			`SELECT contact_id, name, role, email FROM customer.contacts
-			 WHERE customer_id = $1 ORDER BY contact_id`, cid)
-		if err != nil {
-			return nil, err
-		}
-		return svc.ListOf("customer", rows), nil
+		return svc.ListPage(ctx, s.Pool, name,
+			"contact_id, name, role, email",
+			"FROM customer.contacts WHERE customer_id = $1",
+			"ORDER BY contact_id", svc.Limit(r), cid)
 	})
 
 	// 与信「区分」と「限度額」。実際の未払い残高は billing の責務。

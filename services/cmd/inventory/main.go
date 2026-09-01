@@ -30,13 +30,10 @@ func main() {
 		w := &svc.W{}
 		w.Like("name", svc.Q(r, "keyword"))
 		w.Like("category", svc.Q(r, "category"))
-		rows, err := svc.Rows(ctx, s.Pool,
-			`SELECT product_id, name, category, unit_price FROM inventory.products`+
-				w.SQL()+` ORDER BY product_id`, w.Args()...)
-		if err != nil {
-			return nil, err
-		}
-		return svc.ListOf("inventory", rows), nil
+		return svc.ListPage(ctx, s.Pool, name,
+			"product_id, name, category, unit_price",
+			"FROM inventory.products"+w.SQL(),
+			"ORDER BY product_id", svc.Limit(r), w.Args()...)
 	})
 
 	s.Handle("GET /products/{product_id}", func(ctx context.Context, _ authctx.Identity, r *http.Request) (any, error) {
@@ -80,14 +77,10 @@ func main() {
 		w := &svc.W{}
 		w.Lte("s.quantity", threshold)
 		w.Eq("s.warehouse_id", svc.Q(r, "warehouse_id"))
-		rows, err := svc.Rows(ctx, s.Pool,
-			`SELECT s.product_id, p.name AS product_name, s.warehouse_id, s.quantity
-			 FROM inventory.stock s JOIN inventory.products p ON p.product_id = s.product_id`+
-				w.SQL()+` ORDER BY s.quantity, s.product_id`, w.Args()...)
-		if err != nil {
-			return nil, err
-		}
-		return svc.ListOf("inventory", rows), nil
+		return svc.ListPage(ctx, s.Pool, name,
+			"s.product_id, p.name AS product_name, s.warehouse_id, s.quantity",
+			"FROM inventory.stock s JOIN inventory.products p ON p.product_id = s.product_id"+w.SQL(),
+			"ORDER BY s.quantity, s.product_id", svc.Limit(r), w.Args()...)
 	})
 
 	// 在庫数の調整。増減ではなく絶対値で受ける。

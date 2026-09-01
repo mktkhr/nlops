@@ -14,7 +14,7 @@ export NLOPS_DSN = $(DSN)
 
 PSQL = docker exec -i -e PGPASSWORD=$(PG_PASSWORD) $(PG_CONTAINER) psql -U $(PG_USER) -d $(PG_DB) -v ON_ERROR_STOP=1 -q
 
-.PHONY: build db services stop bff web test fmt secrets cert up down reset logs ps
+.PHONY: build db db-bulk services stop bff web test fmt secrets cert up down reset logs ps
 build:
 	cd pkg && go build ./...
 	cd services && go build -o ../bin/ ./cmd/...
@@ -26,6 +26,11 @@ db:
 	$(PSQL) < services/schema/001_schema.sql
 	$(PSQL) < services/schema/002_seed.sql
 	$(PSQL) < services/schema/003_audit.sql
+
+# 実運用に近い規模のデータを足す。既存の C001-C006 等はそのまま残る。
+db-bulk: db
+	@echo "大量データを投入中 (数十秒かかります)..."
+	$(PSQL) < services/schema/bulk/010_bulk_seed.sql
 
 services: build
 	@mkdir -p .run

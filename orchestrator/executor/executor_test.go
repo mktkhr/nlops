@@ -169,3 +169,64 @@ func TestErrorMessagesAreActionable(t *testing.T) {
 		}
 	}
 }
+
+func TestAmbiguousIDs(t *testing.T) {
+	e := New(nil)
+	e.Reset("山田さんの電話番号を変更して")
+
+	// 候補が複数あった一覧から拾った ID は、更新の対象にしてはいけない。
+	e.markAmbiguity(map[string]any{
+		"count": float64(250),
+		"items": []any{
+			map[string]any{"customer_id": "C10011", "name": "山田太郎"},
+			map[string]any{"customer_id": "C10031", "name": "山田花子"},
+		},
+	})
+	if bad := e.AmbiguousIDs(map[string]any{"customer_id": "C10011"}, nil); len(bad) != 1 {
+		t.Errorf("候補が 250 件ある中の 1 件は差し戻すべき: %v", bad)
+	}
+
+	// 1 件に絞り込めた検索の結果は、以前曖昧だった ID でも特定できたとみなす。
+	e.markAmbiguity(map[string]any{
+		"count": float64(1),
+		"items": []any{map[string]any{"customer_id": "C10011", "name": "山田太郎"}},
+	})
+	if bad := e.AmbiguousIDs(map[string]any{"customer_id": "C10011"}, nil); len(bad) != 0 {
+		t.Errorf("1 件に絞り込めた ID は通すべき: %v", bad)
+	}
+
+	// 利用者が自分で書いた ID は、広い一覧に出てきても曖昧ではない。
+	e2 := New(nil)
+	e2.Reset("C005 のメールを更新して")
+	e2.markAmbiguity(map[string]any{
+		"count": float64(5006),
+		"items": []any{map[string]any{"customer_id": "C005"}},
+	})
+	if bad := e2.AmbiguousIDs(map[string]any{"customer_id": "C005"}, nil); len(bad) != 0 {
+		t.Errorf("利用者が指定した ID は通すべき: %v", bad)
+	}
+}
+
+func TestProjectKeepsServiceCount(t *testing.T) {
+	// サービスがページングして 100 行だけ返し、count に総件数 50011 を入れた場合。
+	// ここで count を返却行数に置き換えると、
+	// 「何件ありますか」に対して LLM がページサイズを答えてしまう。
+	items := make([]any, 100)
+	for i := range items {
+		items[i] = map[string]any{"order_id": "O-1", "junk": "x"}
+	}
+	body := map[string]any{"items": items, "count": float64(50011), "returned": float64(100)}
+	got := project(body, toolschema.Projection{
+		ListPath: "items", Fields: []string{"order_id"}, MaxItems: 20,
+	}).(map[string]any)
+
+	if got["count"] != 50011 {
+		t.Errorf("count はサービスが返した総件数のままにすべき: %v", got["count"])
+	}
+	if n := len(got["items"].([]any)); n != 20 {
+		t.Errorf("items は max_items まで切るべき: %d", n)
+	}
+	if got["truncated"] != true || got["shown"] != 20 {
+		t.Errorf("切り詰めたことを伝えるべき: %v %v", got["truncated"], got["shown"])
+	}
+}

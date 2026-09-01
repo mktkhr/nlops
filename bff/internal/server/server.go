@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -362,38 +363,50 @@ func (s *Server) handleOrders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 顧客名は customer サービスが持つ。氏名でフィルタする場合はここで ID へ
-	// 解決する。画面 (と LLM) が顧客IDを知らなくて済むようにするための Aggregation。
+	// 解決し、**その ID 集合を注文サービスへ渡す**。
+	//
+	// 以前は顧客一覧と注文一覧をそれぞれ 1 ページ取ってメモリ上で突き合わせていた。
+	// データが 11 件のうちは動くが、5 万件では「新しい順 100 件」と
+	// 「顧客の先頭 100 件」が重ならず、実在する注文に対して 0 件を返す。
 	nameFilter := r.URL.Query().Get("customer_name")
-	custQ := url.Values{}
 	if nameFilter != "" {
+		custQ := url.Values{}
 		custQ.Set("name", nameFilter)
-	}
-	names := map[string]string{}
-	customers, ccode, cerr := s.fetchList(r.Context(), id, "customer", "/customers", custQ)
-	if cerr == nil {
-		for _, c := range customers {
-			if cid, ok := c["customer_id"].(string); ok {
-				names[cid], _ = c["name"].(string)
-			}
-		}
-	}
-	if nameFilter != "" {
+		custQ.Set("limit", strconv.Itoa(maxResolve))
+		cust, ccode, cerr := s.fetchPage(r.Context(), id, "customer", "/customers", custQ)
 		if cerr != nil {
 			// 403 を 502 へ潰さない。権限がないことは呼び出し側へそのまま伝える。
 			writeErr(w, ccode, cerr.Error())
 			return
 		}
-		if len(names) == 0 {
-			writeJSON(w, http.StatusOK, map[string]any{"items": []any{}, "count": 0})
+		if cust.HasMore {
+			// 一部だけ絞り込んで「これが全部です」と見せるより、
+			// 絞り込めなかったことを伝えるほうが安全。
+			writeErr(w, http.StatusBadRequest, fmt.Sprintf(
+				"「%s」に一致する顧客が %d 件あります。氏名をもう少し具体的に指定してください。",
+				nameFilter, cust.Count))
 			return
+		}
+		if len(cust.Items) == 0 {
+			writeJSON(w, http.StatusOK, map[string]any{"items": []any{}, "count": 0, "hasMore": false})
+			return
+		}
+		for _, c := range cust.Items {
+			if cid, ok := c["customer_id"].(string); ok {
+				q.Add("customer_ids", cid)
+			}
 		}
 	}
 
-	orders, code, err := s.fetchList(r.Context(), id, "order", "/orders", q)
+	op, code, err := s.fetchPage(r.Context(), id, "order", "/orders", q)
 	if err != nil {
 		writeErr(w, code, err.Error())
 		return
 	}
+	orders := op.Items
+
+	// 表示用の顧客名は、返ってきた注文の顧客だけを引く。
+	names := s.customerNames(r.Context(), id, orders)
 
 	type dto struct {
 		OrderID      string `json:"orderId"`
@@ -406,11 +419,6 @@ func (s *Server) handleOrders(w http.ResponseWriter, r *http.Request) {
 	items := make([]dto, 0, len(orders))
 	for _, o := range orders {
 		cid, _ := o["customer_id"].(string)
-		if nameFilter != "" {
-			if _, ok := names[cid]; !ok {
-				continue
-			}
-		}
 		items = append(items, dto{
 			OrderID:      str(o["order_id"]),
 			CustomerID:   cid,
@@ -420,7 +428,47 @@ func (s *Server) handleOrders(w http.ResponseWriter, r *http.Request) {
 			TotalAmount:  num(o["total_amount"]),
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "count": len(items)})
+	// count は該当総件数。items はその 1 ページ分でしかない。
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": items, "count": op.Count, "hasMore": op.HasMore})
+}
+
+// maxResolve は氏名から顧客 ID を引くときの上限。
+// これを超える曖昧な氏名は、黙って一部だけ返さずエラーにする。
+const maxResolve = 200
+
+// customerNames は注文行に出てきた顧客の氏名だけを引く。
+// 顧客一覧の先頭 1 ページを取って突き合わせる実装は、
+// 顧客が増えた時点で当たらなくなる。
+func (s *Server) customerNames(ctx context.Context, id authctx.Identity,
+	rows []map[string]any) map[string]string {
+
+	seen := map[string]bool{}
+	q := url.Values{}
+	for _, o := range rows {
+		cid, _ := o["customer_id"].(string)
+		if cid == "" || seen[cid] {
+			continue
+		}
+		seen[cid] = true
+		q.Add("customer_ids", cid)
+	}
+	names := map[string]string{}
+	if len(seen) == 0 {
+		return names
+	}
+	q.Set("limit", strconv.Itoa(len(seen)))
+	// 氏名が引けなくても注文一覧そのものは出す。名前欄が空になるだけ。
+	cust, _, err := s.fetchPage(ctx, id, "customer", "/customers", q)
+	if err != nil {
+		return names
+	}
+	for _, c := range cust.Items {
+		if cid, ok := c["customer_id"].(string); ok {
+			names[cid], _ = c["name"].(string)
+		}
+	}
+	return names
 }
 
 func (s *Server) handleCustomers(w http.ResponseWriter, r *http.Request) {
@@ -435,11 +483,12 @@ func (s *Server) handleCustomers(w http.ResponseWriter, r *http.Request) {
 			q.Set(k, v)
 		}
 	}
-	rows, code, err := s.fetchList(r.Context(), id, "customer", "/customers", q)
+	cp, code, err := s.fetchPage(r.Context(), id, "customer", "/customers", q)
 	if err != nil {
 		writeErr(w, code, err.Error())
 		return
 	}
+	rows := cp.Items
 	type dto struct {
 		CustomerID string `json:"customerId"`
 		Name       string `json:"name"`
@@ -453,16 +502,25 @@ func (s *Server) handleCustomers(w http.ResponseWriter, r *http.Request) {
 			Region: str(c["region"]), Status: str(c["status"]),
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "count": len(items)})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": items, "count": cp.Count, "hasMore": cp.HasMore})
 }
 
-// fetchList は Microservice の一覧 API を呼ぶ。認証情報の付与はここで行う。
-func (s *Server) fetchList(ctx context.Context, id authctx.Identity,
-	service, path string, q url.Values) ([]map[string]any, int, error) {
+// page は一覧 API の 1 ページ分。Count は返した行数ではなく該当総件数。
+type page struct {
+	Items   []map[string]any `json:"items"`
+	Count   int              `json:"count"`
+	HasMore bool             `json:"has_more"`
+}
+
+// fetchPage は Microservice の一覧 API を呼ぶ。認証情報の付与はここで行う。
+// 総件数と続きの有無も返す。「50,011 件中 100 件を表示」を画面に出すために要る。
+func (s *Server) fetchPage(ctx context.Context, id authctx.Identity,
+	service, path string, q url.Values) (page, int, error) {
 
 	base := s.baseURL(service)
 	if base == "" {
-		return nil, http.StatusInternalServerError, fmt.Errorf("サービス %s の接続先が不明です", service)
+		return page{}, http.StatusInternalServerError, fmt.Errorf("サービス %s の接続先が不明です", service)
 	}
 	u := base + path
 	if len(q) > 0 {
@@ -470,30 +528,28 @@ func (s *Server) fetchList(ctx context.Context, id authctx.Identity,
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, http.StatusInternalServerError, err
+		return page{}, http.StatusInternalServerError, err
 	}
 	id.Apply(req)
 
 	resp, err := s.HTTP.Do(req)
 	if err != nil {
-		return nil, http.StatusBadGateway, fmt.Errorf("%s サービスへ接続できません", service)
+		return page{}, http.StatusBadGateway, fmt.Errorf("%s サービスへ接続できません", service)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode == http.StatusForbidden {
-		return nil, http.StatusForbidden, fmt.Errorf("%s を参照する権限がありません", service)
+		return page{}, http.StatusForbidden, fmt.Errorf("%s を参照する権限がありません", service)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, resp.StatusCode, fmt.Errorf("%s サービスが %d を返しました", service, resp.StatusCode)
+		return page{}, resp.StatusCode, fmt.Errorf("%s サービスが %d を返しました", service, resp.StatusCode)
 	}
-	var out struct {
-		Items []map[string]any `json:"items"`
-	}
+	var out page
 	if err := json.Unmarshal(body, &out); err != nil {
-		return nil, http.StatusBadGateway, fmt.Errorf("%s サービスの応答を解釈できません", service)
+		return page{}, http.StatusBadGateway, fmt.Errorf("%s サービスの応答を解釈できません", service)
 	}
-	return out.Items, http.StatusOK, nil
+	return out, http.StatusOK, nil
 }
 
 // baseURL はカタログからサービスの接続先を引く。

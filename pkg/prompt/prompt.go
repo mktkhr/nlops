@@ -273,6 +273,19 @@ func renderFilters(r uiroute.Route) string {
 	return b.String()
 }
 
+// reasonMaxLen は reason フィールドの上限文字数。
+//
+// これが無いと、結果集合が大きいときにモデルが reason の中へ
+// 取得した行を全部書き出そうとして max_tokens に達し、
+// JSON が閉じないまま打ち切られる (実測: 144 件の出荷検索で 512 tok 到達)。
+// reason は「なぜそうしたか」の一言であって、結果の再掲ではない。
+// プロンプトで頼むのではなく、スキーマで書けなくする。
+const reasonMaxLen = 120
+
+func reasonField() map[string]any {
+	return map[string]any{"type": "string", "maxLength": reasonMaxLen}
+}
+
 // LoopSchema は Tool Loop 1 反復の出力スキーマを返す。
 // 「次の Tool を実行する」か「終了する」かの判断を構造的に拘束する。
 //
@@ -326,7 +339,7 @@ func LoopSchema(tools []toolschema.Tool, routes *uiroute.Catalog, strictArgs, al
 					"filters": map[string]any{
 						"type": "object", "properties": props, "additionalProperties": false,
 					},
-					"reason": map[string]any{"type": "string"},
+					"reason": reasonField(),
 				},
 				"required":             []string{"next", "route", "filters", "reason"},
 				"additionalProperties": false,
@@ -340,7 +353,7 @@ func LoopSchema(tools []toolschema.Tool, routes *uiroute.Catalog, strictArgs, al
 			"type": "object",
 			"properties": map[string]any{
 				"next":   map[string]any{"const": "finish"},
-				"reason": map[string]any{"type": "string"},
+				"reason": reasonField(),
 			},
 			"required":             []string{"next"},
 			"additionalProperties": false,
@@ -356,7 +369,7 @@ func FinishOnlySchema() *llm.JSONSchema {
 		"type": "object",
 		"properties": map[string]any{
 			"next":   map[string]any{"const": "finish"},
-			"reason": map[string]any{"type": "string"},
+			"reason": reasonField(),
 		},
 		"required":             []string{"next"},
 		"additionalProperties": false,
@@ -464,7 +477,7 @@ func NavigateOnlySchema(routes *uiroute.Catalog) *llm.JSONSchema {
 				"next":    map[string]any{"const": "navigate"},
 				"route":   map[string]any{"const": r.Path},
 				"filters": map[string]any{"type": "object", "properties": props, "additionalProperties": false},
-				"reason":  map[string]any{"type": "string"},
+				"reason":  reasonField(),
 			},
 			"required":             []string{"next", "route", "filters", "reason"},
 			"additionalProperties": false,
@@ -512,6 +525,9 @@ func WriteSystem(tools []toolschema.Tool, cmds *command.Catalog) string {
 	b.WriteString("# 指示\n")
 	b.WriteString("- ID が分からない場合は、まず検索系の Tool で対象を特定します。\n")
 	b.WriteString("- ID を推測してはいけません。Tool の結果に現れた ID だけを使います。\n")
+	b.WriteString("- 検索の条件に**変更後の値を使ってはいけません**。\n")
+	b.WriteString("  変更後の値はまだ登録されていないので、必ず 0 件になります。\n")
+	b.WriteString("  対象は氏名など、いま登録されている情報で探します。\n")
 	b.WriteString("- 必要な引数がユーザーの要求に揃っているなら、Tool を1つも実行せず\n")
 	b.WriteString("  ただちに next=\"propose\" で提案します。ID が本文にあるなら検索は不要です。\n")
 	b.WriteString("- 確認のために対象を取得してはいけません。内容の確認は人間が提案画面で行います。\n")
@@ -583,7 +599,7 @@ func WriteSchema(tools []toolschema.Tool, cmds *command.Catalog, strictArgs, all
 				"next":      map[string]any{"const": "propose"},
 				"command":   map[string]any{"const": c.Name},
 				"arguments": args,
-				"reason":    map[string]any{"type": "string"},
+				"reason":    reasonField(),
 			},
 			"required":             []string{"next", "command", "arguments", "reason"},
 			"additionalProperties": false,
@@ -594,7 +610,7 @@ func WriteSchema(tools []toolschema.Tool, cmds *command.Catalog, strictArgs, all
 			"type": "object",
 			"properties": map[string]any{
 				"next":   map[string]any{"const": "finish"},
-				"reason": map[string]any{"type": "string"},
+				"reason": reasonField(),
 			},
 			"required":             []string{"next"},
 			"additionalProperties": false,

@@ -287,6 +287,58 @@ func Detail(entity string, row map[string]any) map[string]any {
 	}
 }
 
+// DefaultLimit / MaxLimit は一覧 API が 1 回で返す行数の上限。
+//
+// これが無いと 5 万件の注文をまるごと返してしまう (実測 6.98MB)。
+// LLM へ渡すのは Projection がさらに絞るが、そこへ至る前の転送量と
+// メモリを抑えるのはサービス側の責務。
+const (
+	DefaultLimit = 100
+	MaxLimit     = 1000
+)
+
+// Limit はクエリパラメータから返却上限を決める。
+func Limit(r *http.Request) int {
+	n := QInt(r, "limit", DefaultLimit)
+	if n <= 0 {
+		return DefaultLimit
+	}
+	if n > MaxLimit {
+		return MaxLimit
+	}
+	return n
+}
+
+// ListPage は件数を数えたうえで 1 ページ分だけ返す。
+//
+// count には**該当する総件数**を入れる。返した行数ではない。
+// ここを取り違えると「何件ありますか」に対して LLM がページサイズを
+// 答えてしまう。returned と has_more で実際に返した量を伝える。
+func ListPage(ctx context.Context, pool *pgxpool.Pool, entity,
+	selectCols, fromWhere, orderBy string, limit int, args ...any) (map[string]any, error) {
+
+	var total int
+	if err := pool.QueryRow(ctx, "SELECT count(*) "+fromWhere, args...).Scan(&total); err != nil {
+		return nil, fmt.Errorf("件数取得: %w", err)
+	}
+	rows, err := Rows(ctx, pool,
+		fmt.Sprintf("SELECT %s %s %s LIMIT %d", selectCols, fromWhere, orderBy, limit), args...)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		rows[i] = Enrich(entity, rows[i])
+	}
+	return map[string]any{
+		"items":    rows,
+		"count":    total,
+		"returned": len(rows),
+		"has_more": total > len(rows),
+		"limit":    limit,
+		"meta":     pageMeta(total, len(rows), limit),
+	}, nil
+}
+
 // ListOf は一覧レスポンスを組み立てる。
 func ListOf(entity string, items []map[string]any) map[string]any {
 	for i := range items {
@@ -295,6 +347,16 @@ func ListOf(entity string, items []map[string]any) map[string]any {
 	out := map[string]any{"items": items, "count": len(items)}
 	out["meta"] = responseMeta(len(items))
 	return out
+}
+
+// pageMeta はページングした一覧用の meta。
+// responseMeta は has_next を常に false で返すので、ページングした
+// 応答にそのまま使うと「続きは無い」と嘘をつくことになる。
+func pageMeta(total, returned, limit int) map[string]any {
+	m := responseMeta(total)
+	m["per_page"] = limit
+	m["has_next"] = total > returned
+	return m
 }
 
 func responseMeta(n int) map[string]any {
@@ -317,4 +379,21 @@ func firstID(row map[string]any) string {
 		}
 	}
 	return "unknown"
+}
+
+// QList は同じキーで繰り返し指定されたクエリパラメータを返す。
+// 空要素は落とし、暴走を防ぐため上限を設ける。
+func QList(r *http.Request, key string, max int) []string {
+	vs := r.URL.Query()[key]
+	out := make([]string, 0, len(vs))
+	for _, v := range vs {
+		if v == "" {
+			continue
+		}
+		out = append(out, v)
+		if len(out) >= max {
+			break
+		}
+	}
+	return out
 }

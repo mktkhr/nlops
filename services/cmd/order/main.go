@@ -64,31 +64,33 @@ func main() {
 		if region, _ := id.RegionFilter(name); region != "" {
 			w.Eq("region", region)
 		}
+		// 状態は 5 種類しかないので集計はページングしない。
 		rows, err := svc.Rows(ctx, s.Pool,
 			`SELECT status, count(*)::int AS count FROM orders.orders`+w.SQL()+
 				` GROUP BY status ORDER BY status`, w.Args()...)
 		if err != nil {
 			return nil, err
 		}
-		return svc.ListOf("order", rows), nil
+		return svc.ListOf(name, rows), nil
 	})
 
 	s.Handle("GET /orders", func(ctx context.Context, id authctx.Identity, r *http.Request) (any, error) {
 		w := &svc.W{}
 		w.Eq("customer_id", svc.Q(r, "customer_id"))
+		// BFF が顧客名を ID 集合へ解決してから渡してくる経路。
+		// 絞り込みをここまで降ろさないと、BFF 側で 1 ページ同士を
+		// 突き合わせることになり件数が増えた瞬間に破綻する。
+		w.In("customer_id", svc.QList(r, "customer_ids", svc.MaxLimit))
 		w.Eq("status", svc.Q(r, "status"))
 		w.Gte("ordered_at", svc.Q(r, "ordered_from"))
 		w.Lte("ordered_at", svc.Q(r, "ordered_to"))
 		if region, _ := id.RegionFilter(name); region != "" {
 			w.Eq("region", region)
 		}
-		rows, err := svc.Rows(ctx, s.Pool,
-			`SELECT order_id, customer_id, status, ordered_at, total_amount FROM orders.orders`+
-				w.SQL()+` ORDER BY ordered_at DESC, order_id DESC`, w.Args()...)
-		if err != nil {
-			return nil, err
-		}
-		return svc.ListOf("order", rows), nil
+		return svc.ListPage(ctx, s.Pool, name,
+			"order_id, customer_id, status, ordered_at, total_amount",
+			"FROM orders.orders"+w.SQL(),
+			"ORDER BY ordered_at DESC, order_id DESC", svc.Limit(r), w.Args()...)
 	})
 
 	s.Handle("GET /orders/{order_id}", func(ctx context.Context, id authctx.Identity, r *http.Request) (any, error) {
@@ -120,13 +122,10 @@ func main() {
 			}
 			return nil, err
 		}
-		rows, err := svc.Rows(ctx, s.Pool,
-			`SELECT product_id, product_name, quantity, unit_price FROM orders.order_items
-			 WHERE order_id = $1 ORDER BY line_no`, oid)
-		if err != nil {
-			return nil, err
-		}
-		return svc.ListOf("order", rows), nil
+		return svc.ListPage(ctx, s.Pool, name,
+			"product_id, product_name, quantity, unit_price",
+			"FROM orders.order_items WHERE order_id = $1",
+			"ORDER BY line_no", svc.Limit(r), oid)
 	})
 
 	// 注文のキャンセル。キャンセルできる状態かどうかの判断はこのサービスの責務。

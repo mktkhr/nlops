@@ -426,15 +426,18 @@ func summarize(os_ []outcome) {
 	sort.Strings(order)
 	sort.Strings(cats)
 
+	const hdr = "| %s | n | 総合 | 必須Tool | 禁止Tool回避 | 権限 | 遷移 | 提案 | step超過なし | 平均step | 平均ms | prompt tok | cache率 | 生B | 投入B | 削減 |\n"
+	const sep = "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|\n"
+
 	fmt.Println("\n### 構成別")
-	fmt.Println("| 構成 | n | 総合 | 必須Tool | 禁止Tool回避 | 権限 | 遷移 | 提案 | step超過なし | 平均step | 平均ms | cache率 |")
-	fmt.Println("|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|")
+	fmt.Printf(hdr, "構成")
+	fmt.Print(sep)
 	for _, k := range order {
 		printStat(k, byKey[k])
 	}
 	fmt.Println("\n### カテゴリ別")
-	fmt.Println("| カテゴリ | n | 総合 | 必須Tool | 禁止Tool回避 | 権限 | 遷移 | 提案 | step超過なし | 平均step | 平均ms | cache率 |")
-	fmt.Println("|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|")
+	fmt.Printf(hdr, "カテゴリ")
+	fmt.Print(sep)
 	for _, c := range cats {
 		printStat(c, byCat[c])
 	}
@@ -446,11 +449,17 @@ func printStat(label string, s *stat) {
 	if s.promptTok > 0 {
 		cache = s.cachedTok / s.promptTok * 100
 	}
-	fmt.Printf("| %s | %d | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.1f | %.0f | %.0f%% |\n",
+	// Projection の削減率。Tool を一度も呼ばなかった (画面遷移で終わった)
+	// ケースばかりだと生バイトが 0 になるので、その場合は空欄にする。
+	cut := "-"
+	if s.rawB > 0 {
+		cut = fmt.Sprintf("%.0f%%", (1-s.projB/s.rawB)*100)
+	}
+	fmt.Printf("| %s | %d | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.0f%% | %.1f | %.0f | %.0f | %.0f%% | %.0f | %.0f | %s |\n",
 		label, s.n,
 		float64(s.pass)/n*100, float64(s.req)/n*100, float64(s.forbid)/n*100,
 		float64(s.perm)/n*100, float64(s.nav)/n*100, float64(s.prop)/n*100, float64(s.steps)/n*100,
-		s.stepsN/n, s.totalMS/n, cache)
+		s.stepsN/n, s.totalMS/n, s.promptTok/n, cache, s.rawB/n, s.projB/n, cut)
 }
 
 func failures(os_ []outcome) {

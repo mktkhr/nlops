@@ -59,6 +59,19 @@ type Executor struct {
 	DisableProjection bool
 
 	seenIDs map[string]bool
+
+	// ambiguousIDs は「複数候補の 1 つとして現れただけ」の ID。
+	//
+	// 顧客が 6 件しか無かった頃は「山田さん」が 0〜1 件しか当たらず、
+	// この区別は不要だった。5,000 件では 250 件当たる。その先頭を
+	// 勝手に選んで更新提案を作られると、承認画面には 1 件しか出ないため
+	// **他に 249 件候補があったという事実が承認者から消える。**
+	// 読み取りなら誤りは画面で気づけるが、更新は取り返しがつかない。
+	ambiguousIDs map[string]bool
+
+	// queryIDs は利用者自身が入力に書いた語。
+	// 「C005 のメールを更新して」の C005 は、後で広い一覧に出てきても曖昧ではない。
+	queryIDs map[string]bool
 }
 
 // New は Executor を作る。
@@ -68,14 +81,19 @@ func New(cat *toolschema.Catalog) *Executor {
 		HTTP:               &http.Client{Timeout: 15 * time.Second},
 		GuardUnresolvedIDs: true,
 		seenIDs:            map[string]bool{},
+		ambiguousIDs:       map[string]bool{},
+		queryIDs:           map[string]bool{},
 	}
 }
 
 // Reset は 1 会話分の状態を初期化する。query に含まれる語は既知として扱う。
 func (e *Executor) Reset(query string) {
 	e.seenIDs = map[string]bool{}
+	e.ambiguousIDs = map[string]bool{}
+	e.queryIDs = map[string]bool{}
 	for _, tok := range tokenPattern.FindAllString(query, -1) {
 		e.seenIDs[strings.ToUpper(tok)] = true
+		e.queryIDs[strings.ToUpper(tok)] = true
 	}
 }
 
@@ -86,6 +104,9 @@ var (
 
 // ErrUnresolvedID は未解決 ID を差し戻すときのメッセージ。
 const ErrUnresolvedID = "unresolved_id"
+
+// ErrAmbiguousID は候補を絞り込めていない ID を差し戻すときのメッセージ。
+const ErrAmbiguousID = "ambiguous_id"
 
 // ErrInvalidEnum は enum 外の値を差し戻すときのメッセージ。
 const ErrInvalidEnum = "invalid_enum"
@@ -174,7 +195,68 @@ func (e *Executor) Execute(ctx context.Context, id authctx.Identity, call Call) 
 	}
 	r.ProjBytes = jsonLen(r.Projected)
 	e.recordIDs(r.Projected)
+	e.markAmbiguity(r.Projected)
 	return r
+}
+
+// markAmbiguity は一覧結果の絞り込み具合を ID ごとに覚える。
+//
+// 候補が 2 件以上あった一覧に出てきた ID は「曖昧」として印を付ける。
+// 逆に 1 件に絞り込めた検索の結果は、以前に曖昧だった ID であっても
+// 特定できたとみなして印を外す (「山田」→ 250 件 → 「山田太郎」→ 1 件)。
+func (e *Executor) markAmbiguity(v any) {
+	obj, ok := v.(map[string]any)
+	if !ok {
+		return
+	}
+	items, ok := obj["items"].([]any)
+	if !ok {
+		return
+	}
+	total := len(items)
+	if n, ok := obj["count"].(float64); ok && int(n) > total {
+		total = int(n)
+	}
+	for _, it := range items {
+		row, ok := it.(map[string]any)
+		if !ok {
+			continue
+		}
+		for k, val := range row {
+			s, ok := val.(string)
+			if !ok || s == "" || !idParamName.MatchString(k) {
+				continue
+			}
+			if total > 1 && !e.queryIDs[strings.ToUpper(s)] {
+				e.ambiguousIDs[strings.ToUpper(s)] = true
+			} else {
+				delete(e.ambiguousIDs, strings.ToUpper(s))
+			}
+		}
+	}
+}
+
+// AmbiguousIDs は「候補が複数あった一覧から拾っただけ」の引数名を返す。
+// 更新の提案でだけ使う。読み取りは間違えても画面で気づけるが、
+// 更新は人間が承認した時点で確定してしまう。
+func (e *Executor) AmbiguousIDs(args map[string]any, skip map[string]bool) []string {
+	if !e.GuardUnresolvedIDs {
+		return nil
+	}
+	var bad []string
+	for _, k := range toolschema.SortedKeys(args) {
+		if !idParamName.MatchString(k) || skip[k] {
+			continue
+		}
+		s, ok := args[k].(string)
+		if !ok || s == "" {
+			continue
+		}
+		if e.ambiguousIDs[strings.ToUpper(s)] {
+			bad = append(bad, k)
+		}
+	}
+	return bad
 }
 
 func (e *Executor) serviceOf(t toolschema.Tool) *toolschema.Service {
@@ -334,8 +416,14 @@ func project(body any, p toolschema.Projection) any {
 		return pickFields(body, p.Fields)
 	}
 	rawList, _ := obj[p.ListPath].([]any)
+	// サービスがページングしている場合、count は総件数であって
+	// 返ってきた行数ではない。ここで len に置き換えると LLM が
+	// 「何件ありますか」にページサイズを答えてしまう。
 	total := len(rawList)
-	limit := total
+	if n, ok := obj["count"].(float64); ok && int(n) >= total {
+		total = int(n)
+	}
+	limit := len(rawList)
 	if limit > p.MaxItems {
 		limit = p.MaxItems
 	}
@@ -344,9 +432,9 @@ func project(body any, p toolschema.Projection) any {
 		items = append(items, pickFields(it, p.Fields))
 	}
 	out := map[string]any{"items": items, "count": total}
-	if total > limit {
+	if total > len(items) {
 		out["truncated"] = true
-		out["shown"] = limit
+		out["shown"] = len(items)
 	}
 	return out
 }

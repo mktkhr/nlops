@@ -125,7 +125,7 @@ export async function fetchUsers(): Promise<{ items: User[] }> {
 export function fetchOrders(
   userId: string,
   params: Record<string, string>,
-): Promise<{ items: Order[]; count: number }> {
+): Promise<{ items: Order[]; count: number; hasMore: boolean }> {
   const q = new URLSearchParams(
     Object.entries(params).filter(([, v]) => v !== ''),
   )
@@ -135,7 +135,7 @@ export function fetchOrders(
 export function fetchCustomers(
   userId: string,
   params: Record<string, string>,
-): Promise<{ items: Customer[]; count: number }> {
+): Promise<{ items: Customer[]; count: number; hasMore: boolean }> {
   const q = new URLSearchParams(
     Object.entries(params).filter(([, v]) => v !== ''),
   )

@@ -277,7 +277,12 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 		}
 
 		if resp.FinishReason() == "length" {
-			tr.Err = fmt.Sprintf("step %d: max_tokens 到達で content が空 (thinking が止まっていない可能性)", i)
+			// 何を吐いて打ち切られたかが分からないと原因を特定できない。
+			head := resp.Text()
+			if len(head) > 300 {
+				head = head[:300] + "…"
+			}
+			tr.Err = fmt.Sprintf("step %d: max_tokens 到達 (%d tok)。生成: %q", i, step.CompTok, head)
 			tr.Steps = append(tr.Steps, step)
 			break
 		}
@@ -562,6 +567,14 @@ func (r *Runner) resolveProposal(name string, args map[string]any, reason string
 	if bad := r.Executor.UnresolvedIDs(clean, enumCommandParams(cmd)); len(bad) > 0 {
 		return nil, fmt.Sprintf("%s: 引数 %s の値は未解決です。先に検索系の Tool で対象を特定してください。",
 			executor.ErrUnresolvedID, strings.Join(bad, ", "))
+	}
+	// 候補が複数あった一覧から拾っただけの ID で更新を提案させない。
+	// 承認画面には 1 件しか出ないので、他に候補があったことが承認者から消える。
+	if bad := r.Executor.AmbiguousIDs(clean, enumCommandParams(cmd)); len(bad) > 0 {
+		return nil, fmt.Sprintf("%s: 引数 %s の値は候補が複数ある中の 1 つです。"+
+			"更新対象は 1 件に絞り込めていなければなりません。"+
+			"検索条件を狭めるか、対象が特定できないことを利用者に伝えて finish してください。",
+			executor.ErrAmbiguousID, strings.Join(bad, ", "))
 	}
 	return &Proposal{
 		Command: cmd.Name, Title: cmd.Title, Arguments: clean,

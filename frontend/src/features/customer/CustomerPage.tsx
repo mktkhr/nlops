@@ -18,6 +18,7 @@ import { fetchCustomers } from '../../shared/api/client'
 import type { Customer } from '../../shared/api/client'
 import { useResource } from '../../shared/api/useResource'
 import { PageHeader } from '../../shared/ui/PageHeader'
+import { ResultCount } from '../../shared/ui/ResultCount'
 import { useUser } from '../../shared/user/user-context'
 
 export function CustomerPage() {
@@ -35,7 +36,7 @@ export function CustomerPage() {
   }
 
   const userId = current?.userId ?? ''
-  const { items, error, loading } = useResource<Customer>(
+  const { items, count, hasMore, error, loading } = useResource<Customer>(
     `${userId}|${name}|${region}`,
     () =>
       userId
@@ -82,6 +83,7 @@ export function CustomerPage() {
 
       <Paper variant="outlined">
         {loading && <LinearProgress />}
+        <ResultCount count={count} shown={items.length} hasMore={hasMore} unit="件" />
         <TableContainer>
           <Table size="small">
             <TableHead>

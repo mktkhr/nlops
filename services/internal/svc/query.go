@@ -67,3 +67,21 @@ func (w *W) SQL() string {
 
 // Args はプレースホルダに対応する引数を返す。
 func (w *W) Args() []any { return w.args }
+
+// In は複数値のいずれかに一致する条件を足す。空なら何もしない。
+//
+// BFF が顧客名を顧客 ID の集合へ解決してから注文サービスへ渡すために要る。
+// これが無いと BFF は両方の一覧を 1 ページずつ取って
+// メモリ上で突き合わせるしかなく、件数が増えた途端に嘘の結果を返す。
+func (w *W) In(col string, vs []string) *W {
+	if len(vs) == 0 {
+		return w
+	}
+	ph := make([]string, 0, len(vs))
+	for _, v := range vs {
+		w.args = append(w.args, v)
+		ph = append(ph, fmt.Sprintf("$%d", len(w.args)))
+	}
+	w.conds = append(w.conds, fmt.Sprintf("%s IN (%s)", col, strings.Join(ph, ", ")))
+	return w
+}

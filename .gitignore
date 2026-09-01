@@ -30,6 +30,7 @@
 !catalog/*.json
 !eval/golden/*.json
 !services/schema/*.sql
+!services/schema/bulk/*.sql
 
 # --- ドキュメント ---
 !docs/*.md
