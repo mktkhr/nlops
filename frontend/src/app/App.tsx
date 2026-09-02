@@ -1,10 +1,11 @@
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 import CssBaseline from '@mui/material/CssBaseline'
 import LinearProgress from '@mui/material/LinearProgress'
 import { ThemeProvider } from '@mui/material/styles'
 import { Navigate, Route, Routes } from 'react-router'
 import { UserProvider } from '../shared/user/UserProvider'
 import { Shell } from './Shell'
+import { preventFocusZoom } from './no-focus-zoom'
 import { theme } from './theme'
 
 // 画面ごとに分割して読み込む。最初に開くのはアシスタントなので、
@@ -23,6 +24,9 @@ const AuditPage = lazy(() =>
 )
 
 export default function App() {
+  // iOS Safari の自動拡大を、入力中だけ止める (no-focus-zoom.ts 参照)。
+  useEffect(preventFocusZoom, [])
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
