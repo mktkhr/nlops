@@ -48,17 +48,48 @@ function fmtValue(v: unknown): string {
 }
 
 /**
- * 今どこで待っているかを言葉にする。
+ * 進行中・完了した段階の 1 行。
  *
  * 画面遷移で終わる問い合わせは Tool を 1 つも実行しないので、
  * ステップが 1 つも出ないまま数秒が過ぎる。ボタンが回っているだけだと、
  * **送れているのか、応答を待っているのか**が利用者に分からない。
+ *
+ * 済んだ段階も消さずに残す。**何をどの順でやったか**が後から追えるほうが、
+ * 一行が入れ替わるより読み取れる情報が多い。
  */
-function phaseLabel(started: boolean, steps: Step[]): string {
-  if (!started) return 'リクエストを送信しています…'
-  if (steps.length === 0) return 'どの操作が必要かを判断しています…'
-  if (steps.some((s) => s.finish)) return '回答をまとめています…'
-  return '次の操作を判断しています…'
+function PhaseRow({
+  done,
+  label,
+  elapsed,
+}: {
+  done: boolean
+  label: string
+  elapsed: number
+}) {
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+      {done ? (
+        <CheckCircleIcon fontSize="small" color="success" />
+      ) : (
+        // 完了時のチェックと同じ幅を占めるようにして、行が横にずれないようにする。
+        <Box sx={{ display: 'flex', width: 20, justifyContent: 'center' }}>
+          <CircularProgress size={14} />
+        </Box>
+      )}
+      <Typography variant="body2" color="text.secondary">
+        {label}
+        {/* 経過秒は「今待っている行」にだけ出す。済んだ行に出すと、
+            その段階にかかった時間だと誤解される。 */}
+        {!done && elapsed > 0 && `…（${elapsed} 秒経過）`}
+        {!done && elapsed === 0 && '…'}
+      </Typography>
+    </Stack>
+  )
+}
+
+/** その先にステップが続かない段階か。navigate / propose / finish で Loop は終わる。 */
+function isTerminal(step: Step | undefined): boolean {
+  return Boolean(step && (step.finish || step.navigate || step.proposal))
 }
 
 /** LLM が返した画面の状態を URL へ変換する。 */
@@ -257,17 +288,31 @@ export function AssistantPage() {
             実行した操作
           </Typography>
           <Stack spacing={1} sx={{ mt: 1 }}>
+            {/* 済んだ段階は消さずに残す。何をどの順でやったかが後から追えるように。 */}
+            <PhaseRow
+              done={started}
+              label={started ? 'リクエストを送信しました' : 'リクエストを送信しています'}
+              elapsed={elapsed}
+            />
+            {started && (
+              <PhaseRow
+                done={steps.length > 0}
+                label={
+                  steps.length > 0
+                    ? 'どの操作が必要かを判断しました'
+                    : 'どの操作が必要かを判断しています'
+                }
+                elapsed={elapsed}
+              />
+            )}
             {steps.map((s) => (
               <StepRow key={s.iteration} step={s} />
             ))}
-            {running && (
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pl: 0.5 }}>
-                <CircularProgress size={14} />
-                <Typography variant="body2" color="text.secondary">
-                  {phaseLabel(started, steps)}
-                  {elapsed > 0 && `（${elapsed} 秒経過）`}
-                </Typography>
-              </Stack>
+            {running && steps.length > 0 && !isTerminal(steps[steps.length - 1]) && (
+              <PhaseRow done={false} label="次の操作を判断しています" elapsed={elapsed} />
+            )}
+            {running && steps.length > 0 && isTerminal(steps[steps.length - 1]) && !answer && (
+              <PhaseRow done={false} label="回答をまとめています" elapsed={elapsed} />
             )}
           </Stack>
         </Paper>
