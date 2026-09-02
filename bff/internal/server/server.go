@@ -203,8 +203,16 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 		}
 		// 遷移するかを決めるための材料。読めなければ入れない
 		// (0 を入れると「該当なし」と区別がつかない)。
-		if sum, ok := s.screenSummary(r.Context(), id, tr.Navigate.Route, tr.Navigate.Filters); ok {
+		//
+		// 権限が無い場合は**そのことを伝える**。要約が無いだけだと
+		// 画面側は「読めなかった」としか分からず、開くボタンを出してしまう。
+		// 押しても何も見られない導線を出さない。
+		sum, denied := s.screenSummary(r.Context(), id, tr.Navigate.Route, tr.Navigate.Filters)
+		if sum != nil {
 			nav["summary"] = sum
+		}
+		if denied {
+			nav["denied"] = true
 		}
 		send("navigate", nav)
 	}
@@ -848,7 +856,7 @@ const previewRows = 5
 // 画面には出ない情報を要約として漏らすことになる。
 // 読めなければ何も返さず、**黙って 0 件と見せない**。
 func (s *Server) screenSummary(ctx context.Context, id authctx.Identity,
-	route string, filters map[string]string) (map[string]any, bool) {
+	route string, filters map[string]string) (sum map[string]any, denied bool) {
 
 	q := url.Values{}
 	for k, v := range filters {
@@ -860,17 +868,19 @@ func (s *Server) screenSummary(ctx context.Context, id authctx.Identity,
 
 	switch route {
 	case "/orders":
-		ids, ok := s.resolveCustomerIDs(ctx, id, q.Get("customer_name"))
+		// 氏名の解決に失敗した場合も、その 403 を画面の拒否として扱う。
+		// 画面側も同じ順で顧客サービスを引くので、開いても同じ 403 になる。
+		ids, code, ok := s.resolveCustomerIDs(ctx, id, q.Get("customer_name"))
 		if !ok {
-			return nil, false
+			return nil, code == http.StatusForbidden
 		}
 		q.Del("customer_name")
 		for _, cid := range ids {
 			q.Add("customer_ids", cid)
 		}
-		p, _, err := s.fetchPage(ctx, id, "order", "/orders", q)
+		p, code, err := s.fetchPage(ctx, id, "order", "/orders", q)
 		if err != nil {
-			return nil, false
+			return nil, code == http.StatusForbidden
 		}
 		names := s.customerNames(ctx, id, p.Items)
 		rows := make([]map[string]any, 0, len(p.Items))
@@ -883,11 +893,11 @@ func (s *Server) screenSummary(ctx context.Context, id authctx.Identity,
 				"trailing": num(o["total_amount"]),
 			})
 		}
-		return map[string]any{"count": p.Count, "rows": rows, "unit": "件"}, true
+		return map[string]any{"count": p.Count, "rows": rows, "unit": "件"}, false
 	case "/customers":
-		p, _, err := s.fetchPage(ctx, id, "customer", "/customers", q)
+		p, code, err := s.fetchPage(ctx, id, "customer", "/customers", q)
 		if err != nil {
-			return nil, false
+			return nil, code == http.StatusForbidden
 		}
 		rows := make([]map[string]any, 0, len(p.Items))
 		for _, c := range p.Items {
@@ -897,7 +907,7 @@ func (s *Server) screenSummary(ctx context.Context, id authctx.Identity,
 				"detail": str(c["region"]) + " / " + str(c["status"]),
 			})
 		}
-		return map[string]any{"count": p.Count, "rows": rows, "unit": "件"}, true
+		return map[string]any{"count": p.Count, "rows": rows, "unit": "件"}, false
 	}
 	return nil, false
 }
@@ -915,17 +925,17 @@ func nameOr(name, fallback string) string {
 // 氏名の指定が無ければ空の集合を返す (絞り込まない)。
 // 絞り込めない (候補が多すぎる / 読めない) ときは ok=false。
 func (s *Server) resolveCustomerIDs(ctx context.Context, id authctx.Identity,
-	name string) ([]string, bool) {
+	name string) ([]string, int, bool) {
 
 	if name == "" {
-		return nil, true
+		return nil, http.StatusOK, true
 	}
 	q := url.Values{}
 	q.Set("name", name)
 	q.Set("limit", strconv.Itoa(maxResolve))
-	cust, _, err := s.fetchPage(ctx, id, "customer", "/customers", q)
+	cust, code, err := s.fetchPage(ctx, id, "customer", "/customers", q)
 	if err != nil || cust.HasMore {
-		return nil, false
+		return nil, code, false
 	}
 	out := make([]string, 0, len(cust.Items))
 	for _, c := range cust.Items {
@@ -933,5 +943,5 @@ func (s *Server) resolveCustomerIDs(ctx context.Context, id authctx.Identity,
 			out = append(out, cid)
 		}
 	}
-	return out, true
+	return out, http.StatusOK, true
 }

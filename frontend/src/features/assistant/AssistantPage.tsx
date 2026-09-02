@@ -366,7 +366,7 @@ function NavigationCard({ nav, onOpen }: { nav: Navigation; onOpen: () => void }
   return (
     <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
       <Typography variant="overline" color="text.secondary">
-        画面で確認できます
+        {nav.denied ? '参照できない画面です' : '画面で確認できます'}
       </Typography>
       <Stack
         direction={{ xs: 'column', sm: 'row' }}
@@ -395,15 +395,26 @@ function NavigationCard({ nav, onOpen }: { nav: Navigation; onOpen: () => void }
             </Typography>
           )}
         </Box>
-        <Button
-          variant="contained"
-          startIcon={<OpenInNewIcon />}
-          onClick={onOpen}
-          sx={{ flexShrink: 0, alignSelf: { xs: 'stretch', sm: 'center' } }}
-        >
-          この条件で開く
-        </Button>
+        {/* 権限が無い画面への導線は出さない。押しても何も見られないボタンは、
+            「壊れている」のか「見せてもらえない」のかを利用者に判断させる。 */}
+        {!nav.denied && (
+          <Button
+            variant="contained"
+            startIcon={<OpenInNewIcon />}
+            onClick={onOpen}
+            sx={{ flexShrink: 0, alignSelf: { xs: 'stretch', sm: 'center' } }}
+          >
+            この条件で開く
+          </Button>
+        )}
       </Stack>
+
+      {nav.denied && (
+        <Alert severity="warning" icon={<BlockIcon fontSize="small" />} sx={{ mt: 1.5 }}>
+          この画面を参照する権限がありません。実行ユーザーを切り替えるか、
+          権限のある担当者に依頼してください。
+        </Alert>
+      )}
 
       {nav.summary && nav.summary.rows.length > 0 && (
         <Box sx={{ mt: 2 }}>

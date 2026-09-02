@@ -25,6 +25,8 @@ export type Navigation = {
   reason?: string
   /** 遷移先の要約。読めなかった場合は入らない (0 件と区別する)。 */
   summary?: ScreenSummary
+  /** その画面を参照する権限が無い。移動しても何も見られない。 */
+  denied?: boolean
 }
 
 export type Proposal = {
