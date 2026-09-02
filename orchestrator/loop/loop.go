@@ -495,8 +495,15 @@ func (r *Runner) finalAnswer(ctx context.Context, history []llm.Message, query s
 	}
 	msgs = append(msgs, llm.Message{Role: "user", Content: "以上の Tool 結果を根拠に、最初の要求へ答えてください。"})
 
+	// 最終回答は短くてよいので 512 を下限にするが、**上限は Loop と揃える**。
+	// 512 を直書きしていたため、思考を有効にすると reasoning が枠を食い切り
+	// content が空のまま返っていた (回答だけが消えるので気づきにくい)。
+	maxTok := 512
+	if opt.MaxTokens > maxTok {
+		maxTok = opt.MaxTokens
+	}
 	resp, err := r.LLM.Chat(ctx, llm.Request{
-		Model: opt.Model, Temperature: 0, MaxTokens: 512, Messages: msgs,
+		Model: opt.Model, Temperature: 0, MaxTokens: maxTok, Messages: msgs,
 	})
 	if err != nil {
 		return "", resp, err

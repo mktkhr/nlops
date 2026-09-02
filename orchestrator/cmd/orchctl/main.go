@@ -21,25 +21,26 @@ import (
 
 func main() {
 	var (
-		base    = flag.String("base", "http://127.0.0.1:11435", "OpenAI 互換サーバの base URL")
-		model   = flag.String("model", "gemma4-12b", "モデル ID")
-		mode    = flag.String("mode", "one_stage", "one_stage / two_stage")
-		user    = flag.String("user", "u_admin", "実行ユーザー ID")
-		catPath = flag.String("catalog", "catalog/services.json", "カタログ")
-		rolPath = flag.String("roles", "catalog/roles.json", "ロール定義")
-		cmdPath = flag.String("commands", "catalog/commands.json", "更新操作の定義。空文字で提案を無効化")
-		rtPath  = flag.String("routes", "catalog/routes.json", "画面定義。空文字で画面遷移を無効化")
-		strict  = flag.Bool("strict", true, "Tool ごとの引数スキーマで制約する")
-		steps   = flag.Int("max-steps", 6, "Tool Loop の最大反復数")
-		noGuard = flag.Bool("no-guard", false, "未解決 ID の差し戻しを無効化する")
-		noAmbig = flag.Bool("no-ambiguity-guard", false, "曖昧な ID での読み取りの差し戻しを無効化する (比較計測用)")
-		reason  = flag.String("reasoning", "none", "reasoning_effort (gpt-oss 系は low)")
-		maxTok  = flag.Int("max-tokens", 512, "1 反復あたりの max_tokens")
-		gate    = flag.Bool("intent-gate", true, "Loop の前に navigate / tool を2択で判定する")
-		noStop  = flag.Bool("no-stop-guard", false, "空振り連続時の finish 強制を無効化する (比較計測用)")
-		noProj  = flag.Bool("no-projection", false, "Response Projection を無効化する (比較計測用)")
-		asJSON  = flag.Bool("json", false, "トレースを JSON で出力する")
-		quiet   = flag.Bool("quiet", false, "最終回答だけを出力する")
+		base     = flag.String("base", "http://127.0.0.1:11435", "OpenAI 互換サーバの base URL")
+		model    = flag.String("model", "gemma4-12b", "モデル ID")
+		mode     = flag.String("mode", "one_stage", "one_stage / two_stage")
+		user     = flag.String("user", "u_admin", "実行ユーザー ID")
+		catPath  = flag.String("catalog", "catalog/services.json", "カタログ")
+		rolPath  = flag.String("roles", "catalog/roles.json", "ロール定義")
+		cmdPath  = flag.String("commands", "catalog/commands.json", "更新操作の定義。空文字で提案を無効化")
+		rtPath   = flag.String("routes", "catalog/routes.json", "画面定義。空文字で画面遷移を無効化")
+		strict   = flag.Bool("strict", true, "Tool ごとの引数スキーマで制約する")
+		steps    = flag.Int("max-steps", 6, "Tool Loop の最大反復数")
+		noGuard  = flag.Bool("no-guard", false, "未解決 ID の差し戻しを無効化する")
+		noAmbig  = flag.Bool("no-ambiguity-guard", false, "曖昧な ID での読み取りの差し戻しを無効化する (比較計測用)")
+		reason   = flag.String("reasoning", "none", "reasoning_effort (gpt-oss 系は low)")
+		thinking = flag.Bool("thinking", false, "モデルの思考を有効にする (比較計測用)。max_tokens を 2048 以上にすること")
+		maxTok   = flag.Int("max-tokens", 512, "1 反復あたりの max_tokens")
+		gate     = flag.Bool("intent-gate", true, "Loop の前に navigate / tool を2択で判定する")
+		noStop   = flag.Bool("no-stop-guard", false, "空振り連続時の finish 強制を無効化する (比較計測用)")
+		noProj   = flag.Bool("no-projection", false, "Response Projection を無効化する (比較計測用)")
+		asJSON   = flag.Bool("json", false, "トレースを JSON で出力する")
+		quiet    = flag.Bool("quiet", false, "最終回答だけを出力する")
 	)
 	flag.Parse()
 
@@ -64,6 +65,9 @@ func main() {
 
 	lc := llm.New(*base)
 	lc.ReasoningEffort = *reason
+	// 思考を止めているのは reasoning_effort と enable_thinking の両方なので、
+	// 有効化するには両方外す必要がある。
+	lc.DisableThinking = !*thinking
 	runner := loop.New(cat, lc)
 	if *rtPath != "" {
 		routes, err := uiroute.Load(*rtPath)
