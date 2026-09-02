@@ -192,6 +192,9 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 		MaxSteps: s.MaxSteps, MaxTokens: maxTok, Answer: true, StopGuard: true, IntentGate: true,
 		Thinking: req.Thinking, History: req.History,
 		OnStep: func(st loop.Step) { send("step", toStepDTO(st)) },
+		// 回答は書く量に比例して時間がかかる (20 行で 8 秒)。
+		// 出来た端から流して、待たされている感じを消す。
+		OnAnswerDelta: func(d string) { send("answer_delta", map[string]any{"text": d}) },
 	})
 
 	if tr.Err != "" {

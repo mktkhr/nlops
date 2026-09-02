@@ -35,6 +35,16 @@ type Request struct {
 	// 既定では両方送る (DisableThinking を参照)。
 	ReasoningEffort    string         `json:"reasoning_effort,omitempty"`
 	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
+
+	// Stream は ChatStream が立てる。呼び出し側で指定するものではない。
+	Stream        bool           `json:"stream,omitempty"`
+	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
+}
+
+// StreamOptions はストリーミング時の追加指定。
+// usage は既定では最終チャンクに乗らないので明示的に要求する。
+type StreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 // ResponseFormat は structured output の指定。
@@ -50,6 +60,16 @@ type JSONSchema struct {
 	Schema any    `json:"schema"`
 }
 
+// Usage はトークンの使用量。ストリーミングでも同じ形で返るので型にしてある。
+type Usage struct {
+	PromptTokens        int `json:"prompt_tokens"`
+	CompletionTokens    int `json:"completion_tokens"`
+	TotalTokens         int `json:"total_tokens"`
+	PromptTokensDetails struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+}
+
 // Response は chat completion のレスポンス。llama.cpp 独自の timings も拾う。
 type Response struct {
 	Choices []struct {
@@ -60,14 +80,7 @@ type Response struct {
 			ReasoningContent string `json:"reasoning_content"`
 		} `json:"message"`
 	} `json:"choices"`
-	Usage struct {
-		PromptTokens        int `json:"prompt_tokens"`
-		CompletionTokens    int `json:"completion_tokens"`
-		TotalTokens         int `json:"total_tokens"`
-		PromptTokensDetails struct {
-			CachedTokens int `json:"cached_tokens"`
-		} `json:"prompt_tokens_details"`
-	} `json:"usage"`
+	Usage   Usage `json:"usage"`
 	Timings struct {
 		CacheN          int     `json:"cache_n"`
 		PromptN         int     `json:"prompt_n"`
@@ -91,6 +104,27 @@ func (r *Response) Text() string {
 }
 
 // FinishReason は終了理由を返す。
+// setText / setFinish はストリーミングで組み立てた内容を Response に載せる。
+// Chat と同じ形にしておくと、呼び出し側が両者を区別せずに扱える。
+func (r *Response) setText(s string) {
+	if len(r.Choices) == 0 {
+		r.Choices = make([]struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
+				Role             string `json:"role"`
+				Content          string `json:"content"`
+				ReasoningContent string `json:"reasoning_content"`
+			} `json:"message"`
+		}, 1)
+	}
+	r.Choices[0].Message.Content = s
+}
+
+func (r *Response) setFinish(s string) {
+	r.setText(r.Text())
+	r.Choices[0].FinishReason = s
+}
+
 func (r *Response) FinishReason() string {
 	if len(r.Choices) == 0 {
 		return ""
@@ -126,21 +160,28 @@ func New(baseURL string) *Client {
 }
 
 // Chat は 1 回の chat completion を実行する。
-func (c *Client) Chat(ctx context.Context, req Request) (*Response, error) {
-	if c.DisableThinking {
+// applyThinkingDefaults は思考を止める指定を埋める。
+// Chat と ChatStream で同じ扱いにするために切り出してある。
+func (c *Client) applyThinkingDefaults(req *Request) {
+	if !c.DisableThinking {
+		return
+	}
+	if req.ReasoningEffort == "" {
+		req.ReasoningEffort = c.ReasoningEffort
 		if req.ReasoningEffort == "" {
-			req.ReasoningEffort = c.ReasoningEffort
-			if req.ReasoningEffort == "" {
-				req.ReasoningEffort = "none"
-			}
-		}
-		if req.ChatTemplateKwargs == nil {
-			req.ChatTemplateKwargs = map[string]any{}
-		}
-		if _, ok := req.ChatTemplateKwargs["enable_thinking"]; !ok {
-			req.ChatTemplateKwargs["enable_thinking"] = false
+			req.ReasoningEffort = "none"
 		}
 	}
+	if req.ChatTemplateKwargs == nil {
+		req.ChatTemplateKwargs = map[string]any{}
+	}
+	if _, ok := req.ChatTemplateKwargs["enable_thinking"]; !ok {
+		req.ChatTemplateKwargs["enable_thinking"] = false
+	}
+}
+
+func (c *Client) Chat(ctx context.Context, req Request) (*Response, error) {
+	c.applyThinkingDefaults(&req)
 
 	body, err := json.Marshal(req)
 	if err != nil {

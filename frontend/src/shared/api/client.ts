@@ -218,6 +218,8 @@ export function fetchAuditTraces(
 
 export type AskHandlers = {
   onStart: (start: Start) => void
+  /** 回答のトークンが届くたび。最後の onAnswer が確定版で、これを上書きする。 */
+  onAnswerDelta: (text: string) => void
   onStep: (step: Step) => void
   onNavigate: (nav: Navigation) => void
   onProposal: (p: Proposal) => void
@@ -301,7 +303,12 @@ function dispatch(block: string, handlers: AskHandlers): void {
     case 'navigate':
       handlers.onNavigate(payload as Navigation)
       break
+    case 'answer_delta':
+      handlers.onAnswerDelta((payload as { text: string }).text)
+      break
     case 'answer':
+      // 確定版。差し替えが起きた場合 (システムプロンプトの混入など) は
+      // 流した内容と違うので、**上書きする**。
       handlers.onAnswer((payload as { answer: string }).answer)
       break
     case 'done':

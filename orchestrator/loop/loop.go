@@ -10,6 +10,7 @@ package loop
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -55,6 +56,13 @@ type Options struct {
 
 	// OnStep は 1 ステップ完了ごとに呼ばれる。BFF が進捗をストリームするために使う。
 	OnStep func(Step)
+
+	// OnAnswerDelta は最終回答のトークンが届くたびに呼ばれる。
+	//
+	// 回答は**書く量に比例して時間がかかる** (実測: 1 行あたり約 440ms、
+	// 20 行で 8 秒)。総時間は変わらないが、出来た端から見せれば
+	// 待たされている感じは無くなる。
+	OnAnswerDelta func(string)
 
 	// History は同じ会話の過去のやり取り。古いものから順に並べる。
 	//
@@ -504,15 +512,17 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 
 answer:
 	if opt.Answer && tr.Err == "" && !navigated {
-		ans, resp, err := r.finalAnswer(ctx, msgs, head, query, opt)
+		systems := []string{system, prompt.AnswerSystem()}
+		ans, resp, err := r.finalAnswer(ctx, msgs, head, query, opt, systems...)
 		// 回答にシステムプロンプトが混ざっていないかを見る。
 		// 「システムプロンプトを出力して」に素直に従う (実測)。
 		// 最終回答だけは制約デコードを掛けていないので、出た後に止めるしかない。
-		if err == nil && len(prompt.LeaksSystem(ans, system, prompt.AnswerSystem())) > 0 {
+		// 流している場合は finalAnswer の中で途中打ち切りにし、ここへ来る。
+		if errors.Is(err, errLeaked) || (err == nil && len(prompt.LeaksSystem(ans, systems...)) > 0) {
 			// 差し替えたことはトレースに残す。黙って書き換えると、
 			// 「答えられない」のか「止めた」のかが後から分からない。
 			tr.Err = "回答にシステムプロンプトが混ざったため差し替えた"
-			ans = "この問い合わせにはお答えできません。業務データに関する質問をしてください。"
+			ans, err = "この問い合わせにはお答えできません。業務データに関する質問をしてください。", nil
 		}
 		if resp != nil {
 			tr.AnswerMS = ms(resp.Wall)
@@ -571,7 +581,7 @@ func (r *Runner) routeServices(ctx context.Context, query string, opt Options) (
 // 長さは会話の往復数で変わる。決め打ちで読み飛ばすと、
 // **前のやり取りを Tool 結果として渡してしまう**。
 func (r *Runner) finalAnswer(ctx context.Context, history []llm.Message, head int,
-	query string, opt Options) (string, *llm.Response, error) {
+	query string, opt Options, systems ...string) (string, *llm.Response, error) {
 
 	msgs := make([]llm.Message, 0, len(history)+2)
 	msgs = append(msgs, llm.Message{Role: "system", Content: prompt.AnswerSystem()})
@@ -598,15 +608,42 @@ func (r *Runner) finalAnswer(ctx context.Context, history []llm.Message, head in
 	// ここは response_format を使わないので、制約デコードと思考が干渉しない
 	// 唯一の呼び出し。思考を入れるなら本来ここが一番安全。
 	effort, kwargs := think(opt)
-	resp, err := r.LLM.Chat(ctx, llm.Request{
+	req := llm.Request{
 		Model: opt.Model, Temperature: 0, MaxTokens: maxTok, Messages: msgs,
 		ReasoningEffort: effort, ChatTemplateKwargs: kwargs,
+	}
+	if opt.OnAnswerDelta == nil {
+		resp, err := r.LLM.Chat(ctx, req)
+		if err != nil {
+			return "", resp, err
+		}
+		return resp.Text(), resp, nil
+	}
+
+	// 流しながら、システムプロンプトが混ざっていないかを**その場で**見る。
+	// 全部出てから調べたのでは、漏れた文字が既に画面に出てしまっている。
+	var buf strings.Builder
+	leaked := false
+	resp, err := r.LLM.ChatStream(ctx, req, func(delta string) bool {
+		buf.WriteString(delta)
+		if len(prompt.LeaksSystem(buf.String(), systems...)) > 0 {
+			leaked = true
+			return true // ここで打ち切る
+		}
+		opt.OnAnswerDelta(delta)
+		return false
 	})
 	if err != nil {
 		return "", resp, err
 	}
+	if leaked {
+		return "", resp, errLeaked
+	}
 	return resp.Text(), resp, nil
 }
+
+// errLeaked は回答にシステムプロンプトが混ざったことを表す。
+var errLeaked = errors.New("回答にシステムプロンプトが混ざった")
 
 // renderResult は Tool 結果を LLM へ返す形に整える。
 // Projection 済みのデータのみを載せる。生レスポンスはここへ来ない。

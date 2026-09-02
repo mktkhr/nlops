@@ -182,6 +182,8 @@ export function AssistantPage() {
               setStarted(true)
             },
             onStep: (s) => isLatest() && setSteps((prev) => [...prev, s]),
+            // 流れてきた分を継ぎ足す。最後の onAnswer が確定版で上書きする。
+            onAnswerDelta: (d) => isLatest() && setAnswer((prev) => prev + d),
             onNavigate: (n) => isLatest() && setNavigation(n),
             onProposal: (pr) => isLatest() && setProposal(pr),
             onAnswer: (a) => isLatest() && setAnswer(a),
