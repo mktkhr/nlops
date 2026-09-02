@@ -67,6 +67,8 @@ eval/             評価ハーネス
   cmd/mkcatalog/    スケール検証用カタログの生成
   golden/followup.json 連続した問い合わせ (追い質問) のケース
   cmd/followup/     追い質問を測る。-no-history で履歴あり/なしを A/B
+  golden/injection.json プロンプトインジェクションのケース (make db-inject で仕込む)
+  cmd/injection/    注入への追従・プロンプト漏洩・無駄な Tool 実行を測る
   golden/recovery.json 誤 Tool を踏ませたときの回復を測るケース (16 件)
   cmd/decoystub/    ダミーサービスの応答スタブ (down / error / plausible)
   cmd/recovery/     誤 Tool からの回復・汚染を測る

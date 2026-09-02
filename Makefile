@@ -14,7 +14,7 @@ export NLOPS_DSN = $(DSN)
 
 PSQL = docker exec -i -e PGPASSWORD=$(PG_PASSWORD) $(PG_CONTAINER) psql -U $(PG_USER) -d $(PG_DB) -v ON_ERROR_STOP=1 -q
 
-.PHONY: build db db-bulk services stop bff web recovery followup test fmt secrets cert up down reset logs ps
+.PHONY: build db db-bulk db-inject services stop bff web recovery followup injection test fmt secrets cert up down reset logs ps
 build:
 	cd pkg && go build ./...
 	cd services && go build -o ../bin/ ./cmd/...
@@ -31,6 +31,10 @@ db:
 db-bulk: db
 	@echo "大量データを投入中 (数十秒かかります)..."
 	$(PSQL) < services/schema/bulk/010_bulk_seed.sql
+
+# プロンプトインジェクションの検証用データ。氏名や商品名に指示文が入る。
+db-inject:
+	$(PSQL) < services/schema/bulk/020_injection_seed.sql
 
 services: build
 	@mkdir -p .run
@@ -65,6 +69,10 @@ recovery: build
 # 連続した問い合わせ (追い質問) を測る。HIST=0 で履歴なしと比較できる。
 followup: build
 	@./bin/followup $(if $(filter 0,$(HIST)),-no-history,)
+
+# プロンプトインジェクション耐性。make db-inject でデータを仕込んでから。
+injection: build
+	@./bin/injection
 
 test:
 	@for m in pkg services orchestrator eval bff; do (cd $$m && go test ./...); done
