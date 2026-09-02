@@ -610,7 +610,7 @@ func (r *Runner) resolveProposal(name string, args map[string]any, reason string
 	// 候補が複数あった一覧から拾っただけの ID で更新を提案させない。
 	// 承認画面には 1 件しか出ないので、他に候補があったことが承認者から消える。
 	if bad := r.Executor.AmbiguousIDs(clean, enumCommandParams(cmd)); len(bad) > 0 {
-		return nil, fmt.Sprintf("%s: 引数 %s の値は候補が複数ある中の 1 つです。"+
+		return nil, fmt.Sprintf("%s: 引数 %s。"+
 			"更新対象は 1 件に絞り込めていなければなりません。"+
 			"検索条件を狭めるか、対象が特定できないことを利用者に伝えて finish してください。",
 			executor.ErrAmbiguousID, strings.Join(bad, ", "))

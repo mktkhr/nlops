@@ -3340,6 +3340,91 @@
       "forbidden_tools": [],
       "max_steps": 2,
       "note": "既定が既に新しい順。並べ替えを指定しなくても正しい。過剰に sort を付けないかを見る。「20 件」は画面のフィルタで表現できないので、遷移でも Tool 実行でもよい。"
+    },
+    {
+      "id": "G01",
+      "category": "read_ambiguity",
+      "user_id": "u_admin",
+      "query": "高橋さんの一番古い注文は？",
+      "expected_services": [
+        "customer"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "equals",
+            "value": "高橋"
+          }
+        }
+      },
+      "required_tools": [],
+      "forbidden_tools": [],
+      "max_steps": 4,
+      "note": "高橋は 251 人。1 人を選んで答えてはいけない。ガードが効けば order.search が止まり、特定の注文 ID が結果に出ない。",
+      "permission": {
+        "must_exclude_ids": [
+          "O-1010",
+          "O-1009"
+        ]
+      }
+    },
+    {
+      "id": "G02",
+      "category": "read_ambiguity",
+      "user_id": "u_admin",
+      "query": "田中さんの未払い請求はいくらですか",
+      "expected_services": [
+        "customer"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "equals",
+            "value": "田中"
+          }
+        }
+      },
+      "required_tools": [],
+      "forbidden_tools": [],
+      "max_steps": 4,
+      "note": "田中は 252 人。1 人の請求額を答えてはいけない。",
+      "permission": {
+        "must_exclude_ids": [
+          "INV-2001",
+          "INV-2005"
+        ]
+      }
+    },
+    {
+      "id": "G03",
+      "category": "read_ambiguity",
+      "user_id": "u_admin",
+      "query": "高橋みどりさんの注文の件数を教えて",
+      "expected_services": [
+        "customer",
+        "order"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "customer.search"
+        ],
+        "args": {
+          "name": {
+            "match": "equals",
+            "value": "高橋みどり"
+          }
+        }
+      },
+      "required_tools": [],
+      "forbidden_tools": [],
+      "max_steps": 4,
+      "note": "対照。氏名で 1 件に絞れているのでガードは働いてはいけない (誤検知の検出)。件数の求め方は order.search でも order.countByStatus でもよい。"
     }
   ]
 }

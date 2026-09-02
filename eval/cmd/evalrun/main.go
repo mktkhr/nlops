@@ -71,6 +71,7 @@ func main() {
 		only    = flag.String("id", "", "ケース ID で絞る")
 		steps   = flag.Int("max-steps", 6, "Tool Loop の最大反復数")
 		noGuard = flag.Bool("no-guard", false, "未解決 ID の差し戻しを無効化する")
+		noAmbig = flag.Bool("no-ambiguity-guard", false, "曖昧な ID での読み取りの差し戻しを無効化する (比較計測用)")
 		reason  = flag.String("reasoning", "none", "reasoning_effort (gpt-oss 系は low)")
 		maxTok  = flag.Int("max-tokens", 512, "1 反復あたりの max_tokens")
 		gate    = flag.Bool("intent-gate", true, "Loop の前に navigate / tool を2択で判定する")
@@ -137,6 +138,7 @@ func main() {
 		runner.Commands = cmds
 	}
 	runner.Executor.GuardUnresolvedIDs = !*noGuard
+	runner.Executor.GuardAmbiguousReads = !*noAmbig
 	runner.Executor.DisableProjection = *noProj
 	ctx := context.Background()
 

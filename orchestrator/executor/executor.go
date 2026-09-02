@@ -60,14 +60,22 @@ type Executor struct {
 
 	seenIDs map[string]bool
 
-	// ambiguousIDs は「複数候補の 1 つとして現れただけ」の ID。
+	// GuardAmbiguousReads が true のとき、候補が複数ある一覧から拾っただけの
+	// ID を引数に使う読み取りも差し戻す。
+	//
+	// 「高橋さんの一番古い注文」で 251 人の高橋から 1 人を黙って選び、
+	// 2 年 7 か月ずれた答えを断定形で返す失敗を実測したため。
+	// 更新と違って画面で気づけると考えていたが、**文章で返る場合は気づけない**。
+	GuardAmbiguousReads bool
+
+	// ambiguousIDs は「複数候補の 1 つとして現れただけ」の ID と、その候補件数。
 	//
 	// 顧客が 6 件しか無かった頃は「山田さん」が 0〜1 件しか当たらず、
 	// この区別は不要だった。5,000 件では 250 件当たる。その先頭を
 	// 勝手に選んで更新提案を作られると、承認画面には 1 件しか出ないため
 	// **他に 249 件候補があったという事実が承認者から消える。**
 	// 読み取りなら誤りは画面で気づけるが、更新は取り返しがつかない。
-	ambiguousIDs map[string]bool
+	ambiguousIDs map[string]int
 
 	// queryIDs は利用者自身が入力に書いた語。
 	// 「C005 のメールを更新して」の C005 は、後で広い一覧に出てきても曖昧ではない。
@@ -77,19 +85,20 @@ type Executor struct {
 // New は Executor を作る。
 func New(cat *toolschema.Catalog) *Executor {
 	return &Executor{
-		Catalog:            cat,
-		HTTP:               &http.Client{Timeout: 15 * time.Second},
-		GuardUnresolvedIDs: true,
-		seenIDs:            map[string]bool{},
-		ambiguousIDs:       map[string]bool{},
-		queryIDs:           map[string]bool{},
+		Catalog:             cat,
+		HTTP:                &http.Client{Timeout: 15 * time.Second},
+		GuardUnresolvedIDs:  true,
+		seenIDs:             map[string]bool{},
+		GuardAmbiguousReads: true,
+		ambiguousIDs:        map[string]int{},
+		queryIDs:            map[string]bool{},
 	}
 }
 
 // Reset は 1 会話分の状態を初期化する。query に含まれる語は既知として扱う。
 func (e *Executor) Reset(query string) {
 	e.seenIDs = map[string]bool{}
-	e.ambiguousIDs = map[string]bool{}
+	e.ambiguousIDs = map[string]int{}
 	e.queryIDs = map[string]bool{}
 	for _, tok := range tokenPattern.FindAllString(query, -1) {
 		e.seenIDs[strings.ToUpper(tok)] = true
@@ -139,6 +148,21 @@ func (e *Executor) Execute(ctx context.Context, id authctx.Identity, call Call) 
 		if bad := e.unresolvedIDs(args, enumParams(tool)); len(bad) > 0 {
 			r.Error = fmt.Sprintf("%s: 引数 %s の値は未解決です。先に検索系の Tool で ID を取得してください。",
 				ErrUnresolvedID, strings.Join(bad, ", "))
+			r.Elapsed = time.Since(start).String()
+			return r
+		}
+	}
+
+	// 候補を絞り込めていない ID での読み取りを止める。
+	//
+	// 利用者は「高橋さん」としか言っていないのに、251 人の中から 1 人を
+	// 選んで答えると、選んだこと自体が回答から消える。
+	// 選ばせないのではなく、**選んだまま答えに進ませない**。
+	if e.GuardAmbiguousReads {
+		if bad := e.AmbiguousIDs(args, enumParams(tool)); len(bad) > 0 {
+			r.Error = fmt.Sprintf("%s: 引数 %s。利用者はどれを指すか特定していません。"+
+				"検索条件を狭めて 1 件に絞り込むか、候補が複数あることを利用者に伝えて finish してください。",
+				ErrAmbiguousID, strings.Join(bad, ", "))
 			r.Elapsed = time.Since(start).String()
 			return r
 		}
@@ -213,9 +237,12 @@ func (e *Executor) markAmbiguity(v any) {
 	if !ok {
 		return
 	}
+	// count は Projection を通った後なので Go の int で入っている。
+	// JSON 由来の float64 だけを見ていると、251 件を 10 件 (=見えている行数)
+	// と誤って覚え、差し戻しメッセージが嘘の件数を伝える。
 	total := len(items)
-	if n, ok := obj["count"].(float64); ok && int(n) > total {
-		total = int(n)
+	if n, ok := asInt(obj["count"]); ok && n > total {
+		total = n
 	}
 	for _, it := range items {
 		row, ok := it.(map[string]any)
@@ -228,7 +255,9 @@ func (e *Executor) markAmbiguity(v any) {
 				continue
 			}
 			if total > 1 && !e.queryIDs[strings.ToUpper(s)] {
-				e.ambiguousIDs[strings.ToUpper(s)] = true
+				// 件数も覚える。差し戻すときに「251 件のうちの 1 件」と
+				// 言えないと、モデルは何を直せばよいか分からない。
+				e.ambiguousIDs[strings.ToUpper(s)] = total
 			} else {
 				delete(e.ambiguousIDs, strings.ToUpper(s))
 			}
@@ -236,9 +265,20 @@ func (e *Executor) markAmbiguity(v any) {
 	}
 }
 
-// AmbiguousIDs は「候補が複数あった一覧から拾っただけ」の引数名を返す。
-// 更新の提案でだけ使う。読み取りは間違えても画面で気づけるが、
-// 更新は人間が承認した時点で確定してしまう。
+// asInt は count のような数値を int で取り出す。
+// Projection 前は JSON 由来の float64、通った後は Go の int になる。
+func asInt(v any) (int, bool) {
+	switch x := v.(type) {
+	case int:
+		return x, true
+	case float64:
+		return int(x), true
+	}
+	return 0, false
+}
+
+// AmbiguousIDs は「候補が複数あった一覧から拾っただけ」の引数を
+// "customer_id (251 件の候補)" の形で返す。
 func (e *Executor) AmbiguousIDs(args map[string]any, skip map[string]bool) []string {
 	if !e.GuardUnresolvedIDs {
 		return nil
@@ -252,8 +292,8 @@ func (e *Executor) AmbiguousIDs(args map[string]any, skip map[string]bool) []str
 		if !ok || s == "" {
 			continue
 		}
-		if e.ambiguousIDs[strings.ToUpper(s)] {
-			bad = append(bad, k)
+		if n := e.ambiguousIDs[strings.ToUpper(s)]; n > 1 {
+			bad = append(bad, fmt.Sprintf("%s (%s は %d 件の候補のうちの 1 件)", k, s, n))
 		}
 	}
 	return bad

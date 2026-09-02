@@ -230,3 +230,27 @@ func TestProjectKeepsServiceCount(t *testing.T) {
 		t.Errorf("切り詰めたことを伝えるべき: %v %v", got["truncated"], got["shown"])
 	}
 }
+
+func TestMarkAmbiguityUsesServiceCount(t *testing.T) {
+	// Projection を通った後の count は Go の int。float64 だけを見ていると
+	// 「251 件の候補」を「10 件」(見えている行数) と誤って覚え、
+	// 差し戻しメッセージが嘘の件数を伝える。
+	for _, count := range []any{251, float64(251)} {
+		e := New(nil)
+		e.Reset("高橋さんの一番古い注文は？")
+		e.markAmbiguity(map[string]any{
+			"count": count,
+			"items": []any{
+				map[string]any{"customer_id": "C005", "name": "高橋みどり"},
+				map[string]any{"customer_id": "C10003", "name": "高橋彩"},
+			},
+		})
+		bad := e.AmbiguousIDs(map[string]any{"customer_id": "C005"}, nil)
+		if len(bad) != 1 {
+			t.Fatalf("count=%v: 差し戻すべき: %v", count, bad)
+		}
+		if !strings.Contains(bad[0], "251") {
+			t.Errorf("count=%v: 候補件数を伝えるべき: %q", count, bad[0])
+		}
+	}
+}
