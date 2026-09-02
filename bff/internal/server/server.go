@@ -200,10 +200,10 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 			"filters": tr.Navigate.Filters,
 			"reason":  tr.Navigate.Reason,
 		}
-		// 遷移するかを決めるための手がかり。数えられなければ入れない
+		// 遷移するかを決めるための材料。読めなければ入れない
 		// (0 を入れると「該当なし」と区別がつかない)。
-		if n, ok := s.screenCount(r.Context(), id, tr.Navigate.Route, tr.Navigate.Filters); ok {
-			nav["count"] = n
+		if sum, ok := s.screenSummary(r.Context(), id, tr.Navigate.Route, tr.Navigate.Filters); ok {
+			nav["summary"] = sum
 		}
 		send("navigate", nav)
 	}
@@ -787,17 +787,28 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]any{"error": msg})
 }
 
-// screenCount は画面 (route + filters) に該当する件数を返す。
+// previewRows は画面遷移の要約に載せる行数。
+//
+// 「どんなデータがあるか」が分かればよいので少なくてよい。
+// 増やすほど画面と同じものを 2 か所で描くことになり、
+// 遷移するかどうかの判断材料という役割から離れる。
+const previewRows = 5
+
+// screenSummary は画面 (route + filters) の要約を返す。件数と先頭の数行。
 //
 // 画面遷移は Tool を 1 つも実行しないので、そのままではアシスタント画面に
 // 「どの画面を開くか」しか出せない。**それだけではボタンを 1 つ増やしただけ**に
-// なるので、遷移せずに済むだけの手がかり (件数) をここで足す。
+// なるので、遷移せずに済むだけの中身をここで足す。
 //
-// 実行ユーザーの権限で読む。見えない範囲の件数を教えると、
-// 画面には出ない情報を件数として漏らすことになる。
-// 数えられなければ 0 と false を返し、**黙って 0 件と見せない**。
-func (s *Server) screenCount(ctx context.Context, id authctx.Identity,
-	route string, filters map[string]string) (int, bool) {
+// **要約はサービスの応答から機械的に作る。** LLM に書かせると、
+// 遷移経路の速さ (Tool 実行なしで 2.6 秒) を失ううえ、
+// 見ていないものを書く余地を増やすことになる。
+//
+// 実行ユーザーの権限で読む。見えない範囲を教えると、
+// 画面には出ない情報を要約として漏らすことになる。
+// 読めなければ何も返さず、**黙って 0 件と見せない**。
+func (s *Server) screenSummary(ctx context.Context, id authctx.Identity,
+	route string, filters map[string]string) (map[string]any, bool) {
 
 	q := url.Values{}
 	for k, v := range filters {
@@ -805,26 +816,59 @@ func (s *Server) screenCount(ctx context.Context, id authctx.Identity,
 			q.Set(k, v)
 		}
 	}
-	// 1 行あれば count は取れる。転送量を増やさない。
-	q.Set("limit", "1")
+	q.Set("limit", strconv.Itoa(previewRows))
 
 	switch route {
 	case "/orders":
 		ids, ok := s.resolveCustomerIDs(ctx, id, q.Get("customer_name"))
 		if !ok {
-			return 0, false
+			return nil, false
 		}
 		q.Del("customer_name")
 		for _, cid := range ids {
 			q.Add("customer_ids", cid)
 		}
 		p, _, err := s.fetchPage(ctx, id, "order", "/orders", q)
-		return p.Count, err == nil
+		if err != nil {
+			return nil, false
+		}
+		names := s.customerNames(ctx, id, p.Items)
+		rows := make([]map[string]any, 0, len(p.Items))
+		for _, o := range p.Items {
+			cid := str(o["customer_id"])
+			rows = append(rows, map[string]any{
+				"key":      str(o["order_id"]),
+				"title":    nameOr(names[cid], cid),
+				"detail":   str(o["ordered_at"]) + " / " + str(o["status"]),
+				"trailing": num(o["total_amount"]),
+			})
+		}
+		return map[string]any{"count": p.Count, "rows": rows, "unit": "件"}, true
 	case "/customers":
 		p, _, err := s.fetchPage(ctx, id, "customer", "/customers", q)
-		return p.Count, err == nil
+		if err != nil {
+			return nil, false
+		}
+		rows := make([]map[string]any, 0, len(p.Items))
+		for _, c := range p.Items {
+			rows = append(rows, map[string]any{
+				"key":    str(c["customer_id"]),
+				"title":  str(c["name"]),
+				"detail": str(c["region"]) + " / " + str(c["status"]),
+			})
+		}
+		return map[string]any{"count": p.Count, "rows": rows, "unit": "件"}, true
 	}
-	return 0, false
+	return nil, false
+}
+
+// nameOr は氏名が引けなかったときに ID で代替する。
+// 空欄にすると「名前の無い顧客」に見える。
+func nameOr(name, fallback string) string {
+	if name != "" {
+		return name
+	}
+	return fallback
 }
 
 // resolveCustomerIDs は氏名を顧客 ID の集合へ解決する。

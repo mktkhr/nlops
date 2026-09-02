@@ -7,12 +7,24 @@ export type User = {
   region?: string
 }
 
+/** 画面遷移の前に見せる中身。BFF がサービスの応答から機械的に作る。 */
+export type ScreenSummary = {
+  count: number
+  unit: string
+  rows: {
+    key: string
+    title: string
+    detail: string
+    trailing?: number
+  }[]
+}
+
 export type Navigation = {
   route: string
   filters?: Record<string, string>
   reason?: string
-  /** その画面に該当する件数。数えられなかった場合は入らない (0 と区別する)。 */
-  count?: number
+  /** 遷移先の要約。読めなかった場合は入らない (0 件と区別する)。 */
+  summary?: ScreenSummary
 }
 
 export type Proposal = {

@@ -272,9 +272,9 @@ function NavigationCard({ nav, onOpen }: { nav: Navigation; onOpen: () => void }
         <Box sx={{ minWidth: 0 }}>
           <Typography sx={{ fontWeight: 600 }}>
             {label}
-            {nav.count !== undefined && (
+            {nav.summary && (
               <Typography component="span" color="text.secondary" sx={{ ml: 1 }}>
-                該当 {nav.count.toLocaleString()} 件
+                該当 {nav.summary.count.toLocaleString()} {nav.summary.unit}
               </Typography>
             )}
           </Typography>
@@ -300,6 +300,51 @@ function NavigationCard({ nav, onOpen }: { nav: Navigation; onOpen: () => void }
           この条件で開く
         </Button>
       </Stack>
+
+      {nav.summary && nav.summary.rows.length > 0 && (
+        <Box sx={{ mt: 2 }}>
+          <Divider sx={{ mb: 1 }} />
+          <Stack divider={<Divider flexItem />}>
+            {nav.summary.rows.map((row) => (
+              <Stack
+                key={row.key}
+                direction="row"
+                spacing={1}
+                sx={{ py: 0.75, alignItems: 'baseline', minWidth: 0 }}
+              >
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ fontFamily: 'monospace', flexShrink: 0 }}
+                >
+                  {row.key}
+                </Typography>
+                <Typography variant="body2" sx={{ flexGrow: 1, minWidth: 0 }} noWrap>
+                  {row.title}
+                </Typography>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ flexShrink: 0, display: { xs: 'none', sm: 'block' } }}
+                >
+                  {row.detail}
+                </Typography>
+                {row.trailing !== undefined && (
+                  <Typography variant="body2" sx={{ flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+                    {row.trailing.toLocaleString()} 円
+                  </Typography>
+                )}
+              </Stack>
+            ))}
+          </Stack>
+          {nav.summary.count > nav.summary.rows.length && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              先頭 {nav.summary.rows.length} {nav.summary.unit}のみ表示しています。
+              残りは画面で確認してください。
+            </Typography>
+          )}
+        </Box>
+      )}
     </Paper>
   )
 }
