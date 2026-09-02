@@ -681,11 +681,20 @@ function PromptForm({
 
   // autoFocus では効かない。実行ユーザーが決まるまで入力欄は disabled で、
   // **無効な要素はフォーカスを受け取れない**。マウント時に一度だけ効く
-  // autoFocus では、有効になった後に当たらない。
-  // 有効になった時点で当てに行き、中央表示のときだけにする
-  // (会話が始まった後に奪うと、結果を読んでいる最中に画面が入力欄へ飛ぶ)。
+  // autoFocus では、有効になった後に当たらない。有効になった時点で当てに行く。
+  //
+  // ただし**触れる端末では当てない**。
+  //   - iOS Safari は入力欄にフォーカスすると、拡大率を入力欄に合わせ直す。
+  //     利用者が縮小して全体を見ていても、画面を開いた瞬間に戻される
+  //   - ソフトウェアキーボードが画面の半分を覆う。まだ何も入力していないのに
+  //     いきなり隠れるのは邪魔でしかない
+  //
+  // font-size を 16px 以上にする定番の対処は既に満たしている (実測で確認)。
+  // 残る原因は「こちらから勝手にフォーカスしていること」なので、それをやめる。
   useEffect(() => {
-    if (!disabled) inputRef.current?.focus()
+    if (disabled) return
+    if (window.matchMedia('(pointer: coarse)').matches) return
+    inputRef.current?.focus()
   }, [disabled])
 
   return (
