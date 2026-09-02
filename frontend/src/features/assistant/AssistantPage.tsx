@@ -289,9 +289,9 @@ export function AssistantPage() {
       {/* 済んだ往復は質問と回答だけを残す。実行の詳細まで積むと、
           今どの質問の結果を見ているのかが分からなくなる。 */}
       {turns.map((t, i) => (
-        <Box key={i} sx={{ mb: 2 }}>
+        <Box key={i} sx={{ mb: 3 }}>
           <QuestionBubble text={t.query} />
-          <Box sx={{ mt: 1 }}>
+          <Box>
             <AnswerText text={t.answer} />
           </Box>
         </Box>
@@ -784,7 +784,9 @@ function PromptForm({
 /** 利用者が送った質問。右寄せの吹き出しにして、回答と見分けられるようにする。 */
 function QuestionBubble({ text }: { text: string }) {
   return (
-    <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+    // 下に余白を持たせる。直後に実行の記録が続くので、詰まっていると
+    // 「聞いたこと」と「やったこと」が 1 かたまりに見えて圧迫感が出る。
+    <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
       <Paper
         elevation={0}
         sx={{ px: 2, py: 1.25, maxWidth: '85%', bgcolor: 'action.selected', borderRadius: 3 }}
