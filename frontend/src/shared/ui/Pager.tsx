@@ -34,6 +34,18 @@ export function Pager({
       labelDisplayedRows={({ from, to, count: c }) =>
         `${c.toLocaleString()} 件中 ${from.toLocaleString()}–${to.toLocaleString()} 件`
       }
+      // 既定のままだと 375px で「次へ」の矢印が枠の外へはみ出して押せない。
+      // 1 行に収めることを諦めて折り返させ、詰め物も狭い画面では削る。
+      sx={{
+        '& .MuiTablePagination-toolbar': {
+          flexWrap: 'wrap',
+          justifyContent: 'flex-end',
+          rowGap: 0.5,
+          px: { xs: 1, sm: 2 },
+        },
+        '& .MuiTablePagination-spacer': { display: { xs: 'none', sm: 'block' } },
+        '& .MuiTablePagination-actions': { ml: { xs: 0, sm: 2.5 } },
+      }}
     />
   )
 }

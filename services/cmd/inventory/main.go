@@ -31,11 +31,11 @@ func main() {
 		w.Like("name", svc.Q(r, "keyword"))
 		w.Like("category", svc.Q(r, "category"))
 		order := svc.OrderBy(r, svc.Sortable{
-			"unit_price_asc":  "unit_price ASC",
-			"unit_price_desc": "unit_price DESC",
-			"name_asc":        "name ASC",
-			"name_desc":       "name DESC",
-		}, "product_id ASC", "product_id")
+			"unit_price_asc":  {Col: "unit_price", Type: "bigint"},
+			"unit_price_desc": {Col: "unit_price", Desc: true, Type: "bigint"},
+			"name_asc":        {Col: "name", Type: "text"},
+			"name_desc":       {Col: "name", Desc: true, Type: "text"},
+		}, svc.Sort{Col: "product_id", Type: "text"}, "product_id", "text")
 		return svc.ListPage(ctx, s.Pool, name,
 			"product_id, name, category, unit_price",
 			"FROM inventory.products"+w.SQL(),
@@ -84,9 +84,9 @@ func main() {
 		w.Lte("s.quantity", threshold)
 		w.Eq("s.warehouse_id", svc.Q(r, "warehouse_id"))
 		order := svc.OrderBy(r, svc.Sortable{
-			"quantity_asc":  "s.quantity ASC",
-			"quantity_desc": "s.quantity DESC",
-		}, "s.quantity ASC", "s.product_id")
+			"quantity_asc":  {Col: "s.quantity", Type: "int"},
+			"quantity_desc": {Col: "s.quantity", Desc: true, Type: "int"},
+		}, svc.Sort{Col: "s.quantity", Type: "int"}, "s.product_id", "text")
 		return svc.ListPage(ctx, s.Pool, name,
 			"s.product_id, p.name AS product_name, s.warehouse_id, s.quantity",
 			"FROM inventory.stock s JOIN inventory.products p ON p.product_id = s.product_id"+w.SQL(),

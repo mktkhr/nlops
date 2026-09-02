@@ -1087,3 +1087,118 @@ Loop は成功しているので**回答が消えたことに気づきにくい*
 - `command_executions` — **業務データを変えた事実**なので会話より長く残す (12 倍)
 
 起動時と 24 時間ごとに実行し、消した件数をログに出す。cron を別に用意させない。
+
+### keyset (cursor) ページング (2026-09-02)
+
+offset は指定分を読み飛ばすので深いページほど遅い。実測 (注文 50,011 件 / 100 件ずつ):
+
+| 方式 | 1 ページ目 | 深い位置 |
+|---|--:|--:|
+| offset | 12.6ms | **50.5ms** (offset=49,900) |
+| cursor | 12.1ms | **9.6ms** (2025-06-01 以降を直接指定) |
+
+**cursor は深さに依存しない。** 5 ページ辿っても 13.4ms のままだった。
+
+#### offset を消さずに併存させた
+
+cursor には「500 ページ目へ飛ぶ」ができない。画面の `TablePagination` は
+任意のページへの移動を出すので、**用途が違う**。
+
+- 画面 → `offset` (`MaxOffset` で上限を置く)
+- 順に辿る用途 → `cursor`
+
+両方指定された場合は cursor を優先する。
+
+#### 並び順が変わった cursor は捨てる
+
+cursor には**どの並び順で作ったか**を入れてある。受注日順で作った cursor を
+金額順のクエリに渡されると、飛ばす行と返す行が噛み合わず、
+**静かに歯抜けの結果を返す**ことになる。復元時に照合して、違えば無効にする。
+
+#### 型を持たせる必要があった
+
+cursor の値は JSON を経由するので文字列や float になる。列の型が分からないと
+`date > text` のような比較を組み立ててしまう。`Sortable` を
+`map[string]Sort{Col, Desc, Type}` に変え、比較時に列の型へキャストするようにした。
+
+同時に、並び順を文字列 (`"ORDER BY ..."`) ではなく構造 (`Order`) で持つよう変えた。
+文字列にしてしまうと keyset の比較式を組み立てられない。
+
+行値比較 `(col, pk) > (v, id)` は `ORDER BY col, pk` に対応する。
+**列と tiebreak の向きが揃っていることが前提**で、これは
+`Order` が両方に同じ向きを使っているから成り立っている
+(ページ送りのために入れた tiebreak が、ここで効いた)。
+
+#### 途中で 1 つ壊した
+
+非 cursor 経路から `OFFSET` を落としてしまい、`offset=6` が 1 ページ目を
+返すようになっていた。cursor 3 ページと offset の結果を突き合わせて気づいた。
+**新しい経路を足すときは、古い経路が同じ答えを返すことを並べて確かめる。**
+
+#### 総件数は cursor でも払っている
+
+`count(*)` は絞り込みの有無に関わらず全走査 (5 万行で 464 buffers)。
+しかも**ページごとに毎回**。cursor で行の取得を速くしても、ここは残る。
+
+`?count=none` を足して外せるようにした (既定は数える。
+「何件ありますか」に答えられなくなるほうが困る)。
+実測で 14.5ms → 10.6ms (28% 減)。5 万件では小さいが、
+**1M 件では count が支配的になる**。総件数を返す設計は、
+ここにコストを固定しているという自覚が要る。
+
+### UI をモバイルで使えるようにする (2026-09-02)
+
+「PoC にしても UI が酷すぎる。モバイルでヘッダーのページが埋もれるし
+スクロールもできない」という報告から。
+
+#### MUI Toolpad は採用しなかった
+
+指示は Toolpad を使うことだったが、**実際に組んで動かした結果として見送った**。
+`@toolpad/core@0.16.0` が要求するのは `@mui/material ^7` / `react-router ^7` で、
+このプロジェクトは 9.4 / 8.3。2 メジャー差がある。
+
+375px のヘッドレス Chrome で実測した内容:
+
+- `React does not recognize the 'alignItems' prop on a DOM element` が毎レンダリング。
+  Toolpad 内部が MUI 7 前提の props を MUI 9 のコンポーネントへ渡し、DOM まで漏れている
+- `You are loading @emotion/react when it is already loaded.`
+- `@mui/system` が **7.3.11 と 9.4.0 の 2 版**入る。Toolpad が
+  `@mui/x-data-grid@8` / `@mui/x-date-pickers@8` を**通常依存**で引くため、
+  peer 警告として握り潰せない
+- `AppProvider theme={...}` を渡してもテーマが貫通しない
+  (`PageContainer` の h1 が MUI 7 既定の Roboto、Button の border-radius が 4px)
+- **そもそも報告された問題が直らない。** Toolpad 自身の `DashboardLayout` の
+  ヘッダーが 375px 幅で 381〜387px 溢れていた
+
+素の MUI 9 で同じもの (デスクトップは permanent Drawer、モバイルは
+temporary Drawer + ハンバーガー) を作るほうが健全と判断した。
+
+#### 本当の原因は 2 つだった
+
+1. **`<Box component="main">` に `minWidth: 0` が無かった。**
+   flex の子は既定で中身の幅まで広がるので、表があると body に横スクロールが出る。
+   「スクロールもできない」の実体はこれ (横に伸びた body の中で縦スクロールが迷子になる)。
+2. **Drawer の先頭に `<Toolbar />` スペーサが無かった。**
+   固定ヘッダーの下に「アシスタント」が潜って押せない。
+   報告された「ページが埋もれる」がそのまま再現した。
+
+表は潰さない。`Table` に `minWidth` を与えて `TableContainer` の中だけを流す。
+潰すと注文 ID が `O-` / `1003` に改行されて読めなくなる。
+
+#### 検証は実際に描画して行った
+
+375 / 414 / 1280px × 全 4 画面で `document.scrollWidth == clientWidth` を確認し、
+コンソールの error / warning を 0 にした。SSE も実走させ、
+画面遷移と提案カードが 375px で破綻しないことを見ている。
+
+#### 検証手順に穴があった
+
+`pnpm exec tsc --noEmit` を型検査の根拠に使っていたが、
+**このプロジェクトでは何も検査していなかった。**
+`tsconfig.json` が `files: []` + `references` の solution 形式なので、
+`-b` 無しの `tsc` は常に exit 0 を返す (`export const x: number = 'a'` を
+置いても通ることを確認)。
+
+実際に型を見ていたのは `pnpm build` (内部で `tsc -b`) と
+`vp lint` (`typeCheck: true`) のほうだった。
+罠なので `pnpm typecheck` (= `tsc -b`) を用意した。

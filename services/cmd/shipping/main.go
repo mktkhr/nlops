@@ -72,9 +72,9 @@ func main() {
 			w.Eq("region", region)
 		}
 		order := svc.OrderBy(r, svc.Sortable{
-			"shipped_at_asc":  "shipped_at ASC",
-			"shipped_at_desc": "shipped_at DESC",
-		}, "shipment_id ASC", "shipment_id")
+			"shipped_at_asc":  {Col: "shipped_at", Type: "date"},
+			"shipped_at_desc": {Col: "shipped_at", Desc: true, Type: "date"},
+		}, svc.Sort{Col: "shipment_id", Type: "text"}, "shipment_id", "text")
 		// shipped_at を返すのは、並べ替えの根拠をモデルにも見せるため。
 		// 見えない列で並べると「一番古い」と言われても検算できない。
 		return svc.ListPage(ctx, s.Pool, name,

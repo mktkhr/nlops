@@ -34,11 +34,11 @@ func main() {
 		}
 		w.Raw(`status IN ('ISSUED','OVERDUE')`)
 		order := svc.OrderBy(r, svc.Sortable{
-			"due_at_asc":  "due_at ASC",
-			"due_at_desc": "due_at DESC",
-			"amount_asc":  "amount ASC",
-			"amount_desc": "amount DESC",
-		}, "due_at ASC", "invoice_id")
+			"due_at_asc":  {Col: "due_at", Type: "date"},
+			"due_at_desc": {Col: "due_at", Desc: true, Type: "date"},
+			"amount_asc":  {Col: "amount", Type: "bigint"},
+			"amount_desc": {Col: "amount", Desc: true, Type: "bigint"},
+		}, svc.Sort{Col: "due_at", Type: "date"}, "invoice_id", "text")
 		return svc.ListPage(ctx, s.Pool, name,
 			"invoice_id, customer_id, status, due_at, amount",
 			"FROM billing.invoices"+w.SQL(),
@@ -55,13 +55,13 @@ func main() {
 			w.Eq("region", region)
 		}
 		order := svc.OrderBy(r, svc.Sortable{
-			"issued_at_asc":  "issued_at ASC",
-			"issued_at_desc": "issued_at DESC",
-			"due_at_asc":     "due_at ASC",
-			"due_at_desc":    "due_at DESC",
-			"amount_asc":     "amount ASC",
-			"amount_desc":    "amount DESC",
-		}, "issued_at DESC", "invoice_id")
+			"issued_at_asc":  {Col: "issued_at", Type: "date"},
+			"issued_at_desc": {Col: "issued_at", Desc: true, Type: "date"},
+			"due_at_asc":     {Col: "due_at", Type: "date"},
+			"due_at_desc":    {Col: "due_at", Desc: true, Type: "date"},
+			"amount_asc":     {Col: "amount", Type: "bigint"},
+			"amount_desc":    {Col: "amount", Desc: true, Type: "bigint"},
+		}, svc.Sort{Col: "issued_at", Desc: true, Type: "date"}, "invoice_id", "text")
 		return svc.ListPage(ctx, s.Pool, name,
 			"invoice_id, customer_id, status, issued_at, due_at, amount",
 			"FROM billing.invoices"+w.SQL(),

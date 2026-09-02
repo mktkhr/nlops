@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -313,6 +314,14 @@ const (
 type Page struct {
 	Limit  int
 	Offset int
+	Cursor string // keyset ページング。offset より優先する
+
+	// NoCount が true のとき総件数を数えない。
+	//
+	// count は絞り込みの有無に関わらず全走査で、**ページごとに毎回払う**。
+	// cursor で順に辿るときは総件数が要らないことが多いので外せるようにする。
+	// 既定は数える (「何件ありますか」に答えられなくなるほうが困る)。
+	NoCount bool
 }
 
 // Pg はクエリパラメータからページ指定を読む。
@@ -331,7 +340,7 @@ func Pg(r *http.Request) Page {
 	if off > MaxOffset {
 		off = MaxOffset
 	}
-	return Page{Limit: n, Offset: off}
+	return Page{Limit: n, Offset: off, Cursor: Q(r, "cursor"), NoCount: Q(r, "count") == "none"}
 }
 
 // ListPage は件数を数えたうえで 1 ページ分だけ返す。
@@ -340,15 +349,35 @@ func Pg(r *http.Request) Page {
 // ここを取り違えると「何件ありますか」に対して LLM がページサイズを
 // 答えてしまう。returned と has_more で実際に返した量を伝える。
 func ListPage(ctx context.Context, pool *pgxpool.Pool, entity,
-	selectCols, fromWhere, orderBy string, pg Page, args ...any) (map[string]any, error) {
+	selectCols, fromWhere string, order Order, pg Page, args ...any) (map[string]any, error) {
 
-	var total int
-	if err := pool.QueryRow(ctx, "SELECT count(*) "+fromWhere, args...).Scan(&total); err != nil {
-		return nil, fmt.Errorf("件数取得: %w", err)
+	// count は絞り込みの有無に関わらず全走査になる (実測: 5 万行で 464 buffers)。
+	// **ページごとに毎回払う**ので、総件数を返す設計はここにコストを固定している。
+	total := -1 // -1 は「数えていない」
+	if !pg.NoCount {
+		if err := pool.QueryRow(ctx, "SELECT count(*) "+fromWhere, args...).Scan(&total); err != nil {
+			return nil, fmt.Errorf("件数取得: %w", err)
+		}
 	}
-	rows, err := Rows(ctx, pool,
-		fmt.Sprintf("SELECT %s %s %s LIMIT %d OFFSET %d",
-			selectCols, fromWhere, orderBy, pg.Limit, pg.Offset), args...)
+
+	keyset := false
+	offset := pg.Offset
+	sql := fmt.Sprintf("SELECT %s %s %s LIMIT %d OFFSET %d",
+		selectCols, fromWhere, order.SQL(), pg.Limit, offset)
+
+	if cur := DecodeCursor(pg.Cursor, sortKeyOf(order)); cur != nil {
+		// cursor があるときは読み飛ばさない。ここが offset との違い。
+		// offset は無視する (両方指定されたら cursor を優先する)。
+		kw := &W{args: append([]any{}, args...)}
+		order.Keyset(kw, cur)
+		sql = fmt.Sprintf("SELECT %s %s %s LIMIT %d",
+			selectCols, joinWhere(fromWhere, kw), order.SQL(), pg.Limit)
+		args = kw.Args()
+		offset = 0
+		keyset = true
+	}
+
+	rows, err := Rows(ctx, pool, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -357,15 +386,59 @@ func ListPage(ctx context.Context, pool *pgxpool.Pool, entity,
 	}
 	// has_more は「この後にまだ行があるか」。総件数と返却数の比較では、
 	// 2 ページ目以降で常に true になってしまう。
-	return map[string]any{
+	hasMore := offset+len(rows) < total
+	if pg.NoCount {
+		// 総件数が無いので「ちょうど 1 ページ分返ったか」で判断するしかない。
+		hasMore = len(rows) == pg.Limit
+	}
+	if keyset {
+		// cursor では「何件目まで来たか」が分からないので、
+		// 1 ページ分ちょうど返ったかどうかで判断する。
+		hasMore = len(rows) == pg.Limit
+	}
+	out := map[string]any{
 		"items":    rows,
-		"count":    total,
 		"returned": len(rows),
-		"offset":   pg.Offset,
-		"has_more": pg.Offset+len(rows) < total,
+		"offset":   offset,
+		"has_more": hasMore,
 		"limit":    pg.Limit,
 		"meta":     pageMeta(total, pg, len(rows)),
-	}, nil
+	}
+	// count は「数えていない」ことを表せないので、数えたときだけ入れる。
+	// 0 を入れると「該当なし」と区別がつかない。
+	if total >= 0 {
+		out["count"] = total
+	}
+	if hasMore && len(rows) > 0 {
+		out["next_cursor"] = nextCursor(order, rows[len(rows)-1])
+	}
+	return out, nil
+}
+
+// sortKeyOf は cursor の照合に使う並び順の識別子。
+// 並び順が変わった cursor を無効にするために使う。
+func sortKeyOf(o Order) string {
+	if o.Sort.Desc {
+		return o.Sort.Col + "_desc"
+	}
+	return o.Sort.Col + "_asc"
+}
+
+// nextCursor は最後の行から次の cursor を作る。
+func nextCursor(o Order, last map[string]any) string {
+	return Cursor{
+		Sort:  sortKeyOf(o),
+		Value: last[colName(o.Sort.Col)],
+		ID:    last[colName(o.Tiebreak)],
+	}.Encode()
+}
+
+// colName は "s.quantity" のような修飾を落として結果の列名に合わせる。
+func colName(expr string) string {
+	if i := strings.LastIndex(expr, "."); i >= 0 {
+		return expr[i+1:]
+	}
+	return expr
 }
 
 // ListOf は一覧レスポンスを組み立てる。

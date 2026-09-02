@@ -101,7 +101,7 @@ export function AssistantPage() {
     <Box>
       <PageHeader
         title="アシスタント"
-        description="自然言語で問い合わせると、必要な業務 API を選んで実行し、結果をまとめて答えます。参照できる範囲は右上のユーザーの権限に従います。"
+        description="自然言語で問い合わせると、必要な業務 API を選んで実行し、結果をまとめて答えます。参照できる範囲はヘッダーで選んだ実行ユーザーの権限に従います。"
       />
 
       {userError && (
@@ -111,7 +111,12 @@ export function AssistantPage() {
       )}
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+        {/* 狭い画面では横に並べると入力欄が数文字分しか残らない。縦に積む。 */}
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={1}
+          sx={{ alignItems: { sm: 'flex-start' } }}
+        >
           <TextField
             fullWidth
             multiline
@@ -134,17 +139,19 @@ export function AssistantPage() {
             // 実行ユーザーが決まっていないと権限を伴う問い合わせができない。
             // 押しても無反応になるより、押せないことを見せる。
             disabled={running || !query.trim() || !current || userLoading}
-            sx={{ minWidth: 104, height: 40 }}
+            sx={{ minWidth: 104, height: 40, alignSelf: { xs: 'flex-end', sm: 'auto' } }}
           >
             送信
           </Button>
         </Stack>
+        {/* Tooltip は触れる端末では開かない。要点はラベルに出し、
+            詳しい数字だけを Tooltip に残す。 */}
         <Tooltip
           title="モデルに考えさせてから答えさせます。実測では精度が 98% → 78% に落ち、5 倍以上遅くなります (失敗の大半は応答が空になる形)。違いを見るための切り替えです。"
-          placement="right"
+          placement="top-start"
         >
           <FormControlLabel
-            sx={{ mt: 1 }}
+            sx={{ mt: 1, mr: 0, alignItems: 'center' }}
             control={
               <Switch
                 size="small"
@@ -274,11 +281,12 @@ function ProposalCard({
         </Typography>
       )}
 
+      {/* 引数の値は長さが読めない。折り返しを許さないと枠から溢れる。 */}
       <Box
         component="dl"
         sx={{
           display: 'grid',
-          gridTemplateColumns: 'max-content 1fr',
+          gridTemplateColumns: 'max-content minmax(0, 1fr)',
           columnGap: 2,
           rowGap: 0.5,
           my: 1.5,
@@ -289,7 +297,11 @@ function ProposalCard({
             <Typography component="dt" variant="body2" color="text.secondary">
               {k}
             </Typography>
-            <Typography component="dd" variant="body2" sx={{ m: 0, fontFamily: 'monospace' }}>
+            <Typography
+              component="dd"
+              variant="body2"
+              sx={{ m: 0, fontFamily: 'monospace', overflowWrap: 'anywhere' }}
+            >
               {String(v)}
             </Typography>
           </Box>
@@ -344,7 +356,7 @@ function StepRow({ step }: { step: Step }) {
         <OpenInNewIcon fontSize="small" color="primary" />
         <Typography variant="body2" color="text.secondary">
           画面を開きます:{' '}
-          <Box component="span" sx={{ fontFamily: 'monospace' }}>
+          <Box component="span" sx={{ fontFamily: 'monospace', overflowWrap: 'anywhere' }}>
             {toPath(step.navigate)}
           </Box>
         </Typography>
@@ -382,7 +394,8 @@ function StepRow({ step }: { step: Step }) {
             variant="body2"
             component="span"
             color="text.secondary"
-            sx={{ fontFamily: 'monospace', ml: 1 }}
+            // 引数の JSON は区切りが無いので、指定しないと折り返らず枠を突き破る。
+            sx={{ fontFamily: 'monospace', ml: 1, overflowWrap: 'anywhere' }}
           >
             {JSON.stringify(step.arguments)}
           </Typography>

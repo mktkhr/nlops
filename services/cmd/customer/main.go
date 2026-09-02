@@ -41,11 +41,11 @@ func main() {
 		// 並べ替えられる列は限る。LLM は enum で縛っているが、
 		// API は直接叩けるのでここでも検証する。
 		order := svc.OrderBy(r, svc.Sortable{
-			"customer_id_asc":  "customer_id ASC",
-			"customer_id_desc": "customer_id DESC",
-			"name_asc":         "name ASC",
-			"name_desc":        "name DESC",
-		}, "customer_id ASC", "customer_id")
+			"customer_id_asc":  {Col: "customer_id", Type: "text"},
+			"customer_id_desc": {Col: "customer_id", Desc: true, Type: "text"},
+			"name_asc":         {Col: "name", Type: "text"},
+			"name_desc":        {Col: "name", Desc: true, Type: "text"},
+		}, svc.Sort{Col: "customer_id", Type: "text"}, "customer_id", "text")
 		return svc.ListPage(ctx, s.Pool, name,
 			"customer_id, name, region, status",
 			"FROM customer.customers"+w.SQL(),
@@ -75,7 +75,8 @@ func main() {
 		return svc.ListPage(ctx, s.Pool, name,
 			"contact_id, name, role, email",
 			"FROM customer.contacts WHERE customer_id = $1",
-			"ORDER BY contact_id", svc.Pg(r), cid)
+			svc.Order{Sort: svc.Sort{Col: "contact_id", Type: "text"}, Tiebreak: "contact_id", TieType: "text"},
+			svc.Pg(r), cid)
 	})
 
 	// 与信「区分」と「限度額」。実際の未払い残高は billing の責務。

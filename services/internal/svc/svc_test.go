@@ -57,10 +57,10 @@ func TestPageMetaHasNext(t *testing.T) {
 
 func TestOrderBy(t *testing.T) {
 	allowed := Sortable{
-		"ordered_at_asc":    "ordered_at ASC",
-		"total_amount_desc": "total_amount DESC",
+		"ordered_at_asc":    {Col: "ordered_at", Type: "date"},
+		"total_amount_desc": {Col: "total_amount", Desc: true, Type: "bigint"},
 	}
-	const def, tie = "ordered_at DESC", "order_id"
+	def := Sort{Col: "ordered_at", Desc: true, Type: "date"}
 
 	tests := []struct {
 		query string
@@ -78,7 +78,8 @@ func TestOrderBy(t *testing.T) {
 		{"?sort=password", "ORDER BY ordered_at DESC, order_id DESC"},
 	}
 	for _, tt := range tests {
-		got := OrderBy(httptest.NewRequest("GET", "/orders"+tt.query, nil), allowed, def, tie)
+		got := OrderBy(httptest.NewRequest("GET", "/orders"+tt.query, nil),
+			allowed, def, "order_id", "text").SQL()
 		if got != tt.want {
 			t.Errorf("OrderBy(%q) = %q, 期待 %q", tt.query, got, tt.want)
 		}
@@ -89,11 +90,56 @@ func TestOrderByAlwaysTiebreaks(t *testing.T) {
 	// tiebreak が無いと、同値の行の並びが不定になる。
 	// ページ送りと組み合わせたとき、同じ行が 2 回出たり
 	// どのページにも出なかったりする。
-	allowed := Sortable{"amount_desc": "amount DESC"}
+	allowed := Sortable{"amount_desc": {Col: "amount", Desc: true, Type: "bigint"}}
+	def := Sort{Col: "due_at", Type: "date"}
 	for _, q := range []string{"", "?sort=amount_desc", "?sort=unknown"} {
-		got := OrderBy(httptest.NewRequest("GET", "/invoices"+q, nil), allowed, "due_at ASC", "invoice_id")
+		got := OrderBy(httptest.NewRequest("GET", "/invoices"+q, nil),
+			allowed, def, "invoice_id", "text").SQL()
 		if !strings.Contains(got, "invoice_id") {
 			t.Errorf("OrderBy(%q) = %q に tiebreak が無い", q, got)
 		}
+	}
+}
+
+func TestCursorRoundTripAndSortGuard(t *testing.T) {
+	c := Cursor{Sort: "ordered_at_asc", Value: "2024-01-01", ID: "O-50940"}
+	enc := c.Encode()
+
+	got := DecodeCursor(enc, "ordered_at_asc")
+	if got == nil || got.Value != "2024-01-01" || got.ID != "O-50940" {
+		t.Fatalf("往復できていない: %+v", got)
+	}
+	// **並び順が変わった cursor は捨てる。**
+	// 受注日順で作った cursor を金額順に渡されると、飛ばす行と返す行が
+	// 噛み合わず、静かに歯抜けの結果を返すことになる。
+	if DecodeCursor(enc, "total_amount_desc") != nil {
+		t.Error("並び順が違う cursor は無効にすべき")
+	}
+	if DecodeCursor("not-base64!!", "ordered_at_asc") != nil {
+		t.Error("壊れた cursor は無効にすべき")
+	}
+	if DecodeCursor("", "ordered_at_asc") != nil {
+		t.Error("空の cursor は nil にすべき")
+	}
+}
+
+func TestKeysetDirection(t *testing.T) {
+	// 昇順は「より後ろ」、降順は「より前」を取る。
+	// 行値比較なので、列と tiebreak の向きが揃っている前提。
+	asc := Order{Sort: Sort{Col: "ordered_at", Type: "date"}, Tiebreak: "order_id", TieType: "text"}
+	w := &W{}
+	asc.Keyset(w, &Cursor{Value: "2024-01-01", ID: "O-1"})
+	if !strings.Contains(w.SQL(), ">") || strings.Contains(w.SQL(), "<") {
+		t.Errorf("昇順は > を使うべき: %s", w.SQL())
+	}
+	desc := Order{Sort: Sort{Col: "ordered_at", Desc: true, Type: "date"}, Tiebreak: "order_id", TieType: "text"}
+	w2 := &W{}
+	desc.Keyset(w2, &Cursor{Value: "2024-01-01", ID: "O-1"})
+	if !strings.Contains(w2.SQL(), "<") {
+		t.Errorf("降順は < を使うべき: %s", w2.SQL())
+	}
+	// 型のキャストが入っていないと date と text を比較して落ちる。
+	if !strings.Contains(w.SQL(), "::date") {
+		t.Errorf("cursor 値は列の型へキャストすべき: %s", w.SQL())
 	}
 }

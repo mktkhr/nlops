@@ -88,11 +88,11 @@ func main() {
 			w.Eq("region", region)
 		}
 		order := svc.OrderBy(r, svc.Sortable{
-			"ordered_at_asc":    "ordered_at ASC",
-			"ordered_at_desc":   "ordered_at DESC",
-			"total_amount_asc":  "total_amount ASC",
-			"total_amount_desc": "total_amount DESC",
-		}, "ordered_at DESC", "order_id")
+			"ordered_at_asc":    {Col: "ordered_at", Type: "date"},
+			"ordered_at_desc":   {Col: "ordered_at", Desc: true, Type: "date"},
+			"total_amount_asc":  {Col: "total_amount", Type: "bigint"},
+			"total_amount_desc": {Col: "total_amount", Desc: true, Type: "bigint"},
+		}, svc.Sort{Col: "ordered_at", Desc: true, Type: "date"}, "order_id", "text")
 		return svc.ListPage(ctx, s.Pool, name,
 			"order_id, customer_id, status, ordered_at, total_amount",
 			"FROM orders.orders"+w.SQL(),
@@ -131,7 +131,8 @@ func main() {
 		return svc.ListPage(ctx, s.Pool, name,
 			"product_id, product_name, quantity, unit_price",
 			"FROM orders.order_items WHERE order_id = $1",
-			"ORDER BY line_no", svc.Pg(r), oid)
+			svc.Order{Sort: svc.Sort{Col: "line_no", Type: "int"}, Tiebreak: "line_no", TieType: "int"},
+			svc.Pg(r), oid)
 	})
 
 	// 注文のキャンセル。キャンセルできる状態かどうかの判断はこのサービスの責務。
