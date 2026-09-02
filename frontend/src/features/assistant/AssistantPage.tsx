@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
@@ -34,6 +34,33 @@ const EXAMPLES = [
   '注文 O-1002 をキャンセルして',
 ]
 
+/**
+ * 更新前後の値の表示。
+ *
+ * 値の型はサービス次第なので unknown で受ける。オブジェクトをそのまま
+ * 文字列にすると "[object Object]" になって何も分からなくなる。
+ */
+function fmtValue(v: unknown): string {
+  if (v === null || v === undefined || v === '') return '(なし)'
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
+  return JSON.stringify(v)
+}
+
+/**
+ * 今どこで待っているかを言葉にする。
+ *
+ * 画面遷移で終わる問い合わせは Tool を 1 つも実行しないので、
+ * ステップが 1 つも出ないまま数秒が過ぎる。ボタンが回っているだけだと、
+ * **送れているのか、応答を待っているのか**が利用者に分からない。
+ */
+function phaseLabel(started: boolean, steps: Step[]): string {
+  if (!started) return 'リクエストを送信しています…'
+  if (steps.length === 0) return 'どの操作が必要かを判断しています…'
+  if (steps.some((s) => s.finish)) return '回答をまとめています…'
+  return '次の操作を判断しています…'
+}
+
 /** LLM が返した画面の状態を URL へ変換する。 */
 function toPath(nav: Navigation): string {
   const q = new URLSearchParams(
@@ -57,35 +84,62 @@ export function AssistantPage() {
   const [traceId, setTraceId] = useState('')
   const [error, setError] = useState('')
   const [running, setRunning] = useState(false)
+  // 送信してから最初のステップが届くまで数秒あるので、何を待っているかを出す。
+  const [started, setStarted] = useState(false)
+  const [elapsed, setElapsed] = useState(0)
   // モデルの思考。既定は off。on にすると 5 倍以上遅くなり、
   // 制約デコードの JSON が出てこない失敗が増える (docs/decisions.md)。
   const [thinking, setThinking] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
+  // 経過秒。数十秒かかることがあるので、動いていることが分かるようにする。
+  useEffect(() => {
+    if (!running) return
+    const t = setInterval(() => setElapsed((v) => v + 1), 1000)
+    return () => clearInterval(t)
+  }, [running])
+
   const ask = useCallback(
     async (q: string) => {
-      if (!current || !q.trim() || running) return
+      if (!current || !q.trim()) return
+      // running を条件にすると、state の反映が 1 描画遅れるぶん、
+      // 素早く 2 回押したときに両方通ってしまう。**前の要求を必ず打ち切る**。
+      // 打ち切らずに走らせると、古いストリームの step が新しい結果に混ざる。
+      abortRef.current?.abort()
+
+      const controller = new AbortController()
+      abortRef.current = controller
+      // この要求が最新かを毎回確かめる。中断しても、既に届いていた
+      // イベントのコールバックが後から走ることがある。
+      const isLatest = () => abortRef.current === controller
+
       setSteps([])
       setAnswer('')
       setDone(null)
       setProposal(null)
+      setNavigation(null)
+      setTraceId('')
       setError('')
+      setStarted(false)
+      setElapsed(0)
       setRunning(true)
 
-      const controller = new AbortController()
-      abortRef.current = controller
       try {
         await streamAsk(
           q,
           current.userId,
           {
-            onStart: (st) => setTraceId(st.traceId),
-            onStep: (s) => setSteps((prev) => [...prev, s]),
-            onNavigate: setNavigation,
-            onProposal: setProposal,
-            onAnswer: setAnswer,
-            onDone: setDone,
-            onError: setError,
+            onStart: (st) => {
+              if (!isLatest()) return
+              setTraceId(st.traceId)
+              setStarted(true)
+            },
+            onStep: (s) => isLatest() && setSteps((prev) => [...prev, s]),
+            onNavigate: (n) => isLatest() && setNavigation(n),
+            onProposal: (pr) => isLatest() && setProposal(pr),
+            onAnswer: (a) => isLatest() && setAnswer(a),
+            onDone: (d) => isLatest() && setDone(d),
+            onError: (m) => isLatest() && setError(m),
           },
           controller.signal,
           thinking,
@@ -95,11 +149,13 @@ export function AssistantPage() {
           setError(e instanceof Error ? e.message : String(e))
         }
       } finally {
-        setRunning(false)
-        abortRef.current = null
+        if (abortRef.current === controller) {
+          setRunning(false)
+          abortRef.current = null
+        }
       }
     },
-    [current, running, navigate, thinking],
+    [current, thinking],
   )
 
   return (
@@ -195,7 +251,7 @@ export function AssistantPage() {
         </Alert>
       )}
 
-      {steps.length > 0 && (
+      {(running || steps.length > 0) && (
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
           <Typography variant="overline" color="text.secondary">
             実行した操作
@@ -208,7 +264,8 @@ export function AssistantPage() {
               <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pl: 0.5 }}>
                 <CircularProgress size={14} />
                 <Typography variant="body2" color="text.secondary">
-                  次の操作を判断しています…
+                  {phaseLabel(started, steps)}
+                  {elapsed > 0 && `（${elapsed} 秒経過）`}
                 </Typography>
               </Stack>
             )}
@@ -467,11 +524,11 @@ function ProposalCard({
                     sx={{ m: 0, overflowWrap: 'anywhere' }}
                   >
                     <Box component="span" sx={{ color: 'text.secondary', textDecoration: 'line-through' }}>
-                      {String(c.before ?? '(なし)')}
+                      {fmtValue(c.before)}
                     </Box>
                     {' → '}
                     <Box component="span" sx={{ fontWeight: 600 }}>
-                      {String(c.after ?? '(なし)')}
+                      {fmtValue(c.after)}
                     </Box>
                   </Typography>
                 </Box>
