@@ -273,6 +273,16 @@ func renderFilters(r uiroute.Route) string {
 	return b.String()
 }
 
+// NarrowingParams は「対象を絞り込む」引数名。件数を減らす条件。
+//
+// 利用者が言っていない条件を勝手に足す失敗があるため
+// (「高橋みどりさんの一番古い注文」に status=PLACED を付けて別の注文を答えた)、
+// **どの条件で絞ったかを回答の利用者に見せる**ために使う。
+//
+// sort は絞り込みではない (件数が変わらない) ので対象外。
+// ID 系は出所検証 (UnresolvedIDs / AmbiguousIDs) が別に見ている。
+var NarrowingParams = map[string]bool{"status": true, "region": true, "period": true}
+
 // reasonMaxLen は reason フィールドの上限文字数。
 //
 // これが無いと、結果集合が大きいときにモデルが reason の中へ

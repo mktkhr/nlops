@@ -181,7 +181,7 @@ func TestAmbiguousIDs(t *testing.T) {
 			map[string]any{"customer_id": "C10011", "name": "山田太郎"},
 			map[string]any{"customer_id": "C10031", "name": "山田花子"},
 		},
-	})
+	}, false)
 	if bad := e.AmbiguousIDs(map[string]any{"customer_id": "C10011"}, nil); len(bad) != 1 {
 		t.Errorf("候補が 250 件ある中の 1 件は差し戻すべき: %v", bad)
 	}
@@ -190,7 +190,7 @@ func TestAmbiguousIDs(t *testing.T) {
 	e.markAmbiguity(map[string]any{
 		"count": float64(1),
 		"items": []any{map[string]any{"customer_id": "C10011", "name": "山田太郎"}},
-	})
+	}, false)
 	if bad := e.AmbiguousIDs(map[string]any{"customer_id": "C10011"}, nil); len(bad) != 0 {
 		t.Errorf("1 件に絞り込めた ID は通すべき: %v", bad)
 	}
@@ -201,7 +201,7 @@ func TestAmbiguousIDs(t *testing.T) {
 	e2.markAmbiguity(map[string]any{
 		"count": float64(5006),
 		"items": []any{map[string]any{"customer_id": "C005"}},
-	})
+	}, false)
 	if bad := e2.AmbiguousIDs(map[string]any{"customer_id": "C005"}, nil); len(bad) != 0 {
 		t.Errorf("利用者が指定した ID は通すべき: %v", bad)
 	}
@@ -244,7 +244,7 @@ func TestMarkAmbiguityUsesServiceCount(t *testing.T) {
 				map[string]any{"customer_id": "C005", "name": "高橋みどり"},
 				map[string]any{"customer_id": "C10003", "name": "高橋彩"},
 			},
-		})
+		}, false)
 		bad := e.AmbiguousIDs(map[string]any{"customer_id": "C005"}, nil)
 		if len(bad) != 1 {
 			t.Fatalf("count=%v: 差し戻すべき: %v", count, bad)
@@ -252,5 +252,27 @@ func TestMarkAmbiguityUsesServiceCount(t *testing.T) {
 		if !strings.Contains(bad[0], "251") {
 			t.Errorf("count=%v: 候補件数を伝えるべき: %q", count, bad[0])
 		}
+	}
+}
+
+func TestAmbiguityAllowsSortedTop(t *testing.T) {
+	// 「一番古い注文」に対して並べ替えを指定して取った先頭行は、
+	// 250 件の中から勝手に 1 件選んだのとは違う。一意に定まる。
+	e := New(nil)
+	e.Reset("高橋みどりさんの一番古い注文は？")
+	list := map[string]any{
+		"count": float64(2),
+		"items": []any{
+			map[string]any{"order_id": "O-1010"},
+			map[string]any{"order_id": "O-1009"},
+		},
+	}
+	e.markAmbiguity(list, true)
+	if bad := e.AmbiguousIDs(map[string]any{"order_id": "O-1010"}, nil); len(bad) != 0 {
+		t.Errorf("並べ替えた先頭行は通すべき: %v", bad)
+	}
+	// 2 行目以降は依然として恣意的な選択。
+	if bad := e.AmbiguousIDs(map[string]any{"order_id": "O-1009"}, nil); len(bad) != 1 {
+		t.Errorf("先頭以外は差し戻すべき: %v", bad)
 	}
 }

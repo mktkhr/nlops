@@ -127,6 +127,15 @@ type Trace struct {
 	// Proposal は更新操作の提案。実行はされていない。
 	Proposal *Proposal `json:"proposal,omitempty"`
 
+	// Filters は Loop 全体で実際に適用された絞り込み条件。
+	//
+	// モデルが利用者の求めていない条件を勝手に足す失敗があり
+	// (「高橋みどりさんの一番古い注文」に status=PLACED)、
+	// **それを構造で防ぐ方法は見つかっていない** (decisions.md 参照)。
+	// 防げないので、代わりに**何で絞ったかを利用者へ見せる**。
+	// 「頼んでいない条件が付いている」ことは人間なら一目で分かる。
+	Filters map[string]string `json:"filters,omitempty"`
+
 	Intent     string  `json:"intent,omitempty"` // IntentGate 使用時の判定結果
 	IntentMS   float64 `json:"intent_ms"`
 	RouteMS    float64 `json:"route_ms"`
@@ -419,6 +428,10 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 			res = r.Executor.Execute(ctx, id, executor.Call{Tool: decision.Tool, Arguments: decision.Arguments})
 		}
 		step.Result = &res
+		if res.Error == "" {
+			// 差し戻された呼び出しは実際には絞り込んでいないので数えない。
+			recordFilters(tr, decision.Arguments)
+		}
 		tr.RawBytes += res.RawBytes
 		tr.ProjBytes += res.ProjBytes
 		if res.Denied {
@@ -554,6 +567,24 @@ func think(opt Options) (string, map[string]any) {
 		return "", nil // クライアント側の既定 (思考オフ) に任せる
 	}
 	return "high", map[string]any{"enable_thinking": true}
+}
+
+// recordFilters は実際に適用された絞り込み条件を集める。
+// 呼び出しが成功したときだけ呼ぶ (差し戻された条件を見せても混乱するだけ)。
+func recordFilters(tr *Trace, args map[string]any) {
+	for k, v := range args {
+		if !prompt.NarrowingParams[k] {
+			continue
+		}
+		s, ok := v.(string)
+		if !ok || s == "" {
+			continue
+		}
+		if tr.Filters == nil {
+			tr.Filters = map[string]string{}
+		}
+		tr.Filters[k] = s
+	}
 }
 
 func barrenResult(res executor.Result) bool {

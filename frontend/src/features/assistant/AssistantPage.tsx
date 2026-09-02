@@ -230,6 +230,7 @@ export function AssistantPage() {
         </Paper>
       )}
 
+      {done && <AppliedFilters filters={done.filters} />}
       {done && <Metrics done={done} />}
     </Box>
   )
@@ -412,6 +413,34 @@ function StepRow({ step }: { step: Step }) {
         )}
       </Box>
     </Stack>
+  )
+}
+
+/**
+ * 実際に適用された絞り込み条件。
+ *
+ * モデルが利用者の求めていない条件を勝手に足すことがあり
+ * (「一番古い注文」に status=PLACED を付けて別の注文を答えた)、
+ * **構造で防ぐ方法は見つかっていない**。防げないので見せる。
+ * 頼んでいない条件が並んでいれば、人間なら一目で分かる。
+ */
+function AppliedFilters({ filters }: { filters?: Record<string, string> }) {
+  const entries = Object.entries(filters ?? {})
+  if (entries.length === 0) return null
+  return (
+    <Paper variant="outlined" sx={{ px: 2, py: 1.5, mb: 2 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+        この回答で使われた絞り込み
+      </Typography>
+      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+        {entries.map(([k, v]) => (
+          <Chip key={k} size="small" variant="outlined" label={`${k} = ${v}`} />
+        ))}
+      </Stack>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+        求めていない条件が含まれていないか確認してください。
+      </Typography>
+    </Paper>
   )
 }
 

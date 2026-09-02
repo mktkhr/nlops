@@ -77,6 +77,10 @@ type Executor struct {
 	// 読み取りなら誤りは画面で気づけるが、更新は取り返しがつかない。
 	ambiguousIDs map[string]int
 
+	// query は利用者の入力そのもの。絞り込みの根拠が本当に入力にあったかを
+	// 文字列として照合するために保持する。
+	query string
+
 	// queryIDs は利用者自身が入力に書いた語。
 	// 「C005 のメールを更新して」の C005 は、後で広い一覧に出てきても曖昧ではない。
 	queryIDs map[string]bool
@@ -100,6 +104,7 @@ func (e *Executor) Reset(query string) {
 	e.seenIDs = map[string]bool{}
 	e.ambiguousIDs = map[string]int{}
 	e.queryIDs = map[string]bool{}
+	e.query = query
 	for _, tok := range tokenPattern.FindAllString(query, -1) {
 		e.seenIDs[strings.ToUpper(tok)] = true
 		e.queryIDs[strings.ToUpper(tok)] = true
@@ -219,7 +224,11 @@ func (e *Executor) Execute(ctx context.Context, id authctx.Identity, call Call) 
 	}
 	r.ProjBytes = jsonLen(r.Projected)
 	e.recordIDs(r.Projected)
-	e.markAmbiguity(r.Projected)
+	// 並べ替えを明示した検索の先頭行は「勝手に選んだ 1 件」ではない。
+	// 利用者が「一番古い」と言い、その順で並べて先頭を取ったのなら、
+	// それは一意に定まる答え。2 行目以降は依然として恣意的な選択になる。
+	_, sorted := args["sort"].(string)
+	e.markAmbiguity(r.Projected, sorted)
 	return r
 }
 
@@ -228,7 +237,7 @@ func (e *Executor) Execute(ctx context.Context, id authctx.Identity, call Call) 
 // 候補が 2 件以上あった一覧に出てきた ID は「曖昧」として印を付ける。
 // 逆に 1 件に絞り込めた検索の結果は、以前に曖昧だった ID であっても
 // 特定できたとみなして印を外す (「山田」→ 250 件 → 「山田太郎」→ 1 件)。
-func (e *Executor) markAmbiguity(v any) {
+func (e *Executor) markAmbiguity(v any, sortedTop bool) {
 	obj, ok := v.(map[string]any)
 	if !ok {
 		return
@@ -244,17 +253,19 @@ func (e *Executor) markAmbiguity(v any) {
 	if n, ok := asInt(obj["count"]); ok && n > total {
 		total = n
 	}
-	for _, it := range items {
+	for i, it := range items {
 		row, ok := it.(map[string]any)
 		if !ok {
 			continue
 		}
+		// 並べ替えを指定した検索の先頭行は一意に定まる。
+		determinate := sortedTop && i == 0
 		for k, val := range row {
 			s, ok := val.(string)
 			if !ok || s == "" || !idParamName.MatchString(k) {
 				continue
 			}
-			if total > 1 && !e.queryIDs[strings.ToUpper(s)] {
+			if total > 1 && !determinate && !e.queryIDs[strings.ToUpper(s)] {
 				// 件数も覚える。差し戻すときに「251 件のうちの 1 件」と
 				// 言えないと、モデルは何を直せばよいか分からない。
 				e.ambiguousIDs[strings.ToUpper(s)] = total

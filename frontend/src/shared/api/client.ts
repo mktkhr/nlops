@@ -56,6 +56,8 @@ export type Done = {
   toolsUsed: string[]
   navigated: boolean
   proposed: boolean
+  /** 実際に適用された絞り込み条件。頼んでいない条件が付いていないか確かめるため。 */
+  filters?: Record<string, string>
 }
 
 export type Order = {

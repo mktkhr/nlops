@@ -203,6 +203,9 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	}
 	send("answer", map[string]any{"answer": tr.Answer})
 	send("done", map[string]any{
+		// filters は実際に適用された絞り込み条件。利用者が頼んでいない条件が
+		// 付いていないかを人間が確かめられるようにするため。
+		"filters":    tr.Filters,
 		"totalMs":    tr.TotalMS,
 		"promptTok":  tr.PromptTok,
 		"cachedTok":  tr.CachedTok,
