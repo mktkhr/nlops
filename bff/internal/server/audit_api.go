@@ -100,7 +100,7 @@ func (s *Server) handleAuditExecutions(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := s.queryJSON(r.Context(), `
 		SELECT execution_id, created_at, trace_id, user_id, role, command,
-		       arguments, status_code, ok, error
+		       arguments, status_code, ok, error, before, result
 		FROM audit.command_executions
 		WHERE ($1 = '' OR command = $1)
 		ORDER BY created_at DESC

@@ -60,21 +60,36 @@ CREATE TABLE audit.trace_steps (
 );
 
 -- 更新操作の承認と実行。拒否された試行も 1 行として残す。
+--
+-- idempotency_key はこの表を**二重実行のロックとして使う**ためのもの。
+-- 実行の記録先と排他の置き場所を分けると、記録が入る前に 2 本目が走れてしまう。
+-- 実行前に行を確保 (status_code = 0) し、完了時に結果で更新する。
 CREATE TABLE audit.command_executions (
     execution_id uuid PRIMARY KEY,
     created_at   timestamptz NOT NULL DEFAULT now(),
-    trace_id     uuid REFERENCES audit.traces(trace_id) ON DELETE SET NULL,
+    -- traces への外部キーは張らない。
+    -- 監査は best-effort (書けなくても操作は止めない) と決めてあるのに、
+    -- ここを FK にすると**トレース記録が落ちただけで更新が実行できなくなる**。
+    -- 実行の記録のほうが、会話との紐付けより優先度が高い。
+    trace_id     uuid,
     user_id      text NOT NULL,   -- 承認して実行した人
     role         text NOT NULL,
     command      text NOT NULL,
     arguments    jsonb NOT NULL,
-    status_code  int  NOT NULL,
+    status_code  int  NOT NULL,   -- 0 は「実行中」
     ok           boolean NOT NULL,
     error        text,            -- 業務ルールや権限で拒否された理由
-    result       jsonb            -- サービスが返した実行後の状態
+    before       jsonb,           -- 実行直前に読んだ対象の状態
+    result       jsonb,           -- サービスが返した実行後の状態
+    idempotency_key text          -- 同じ承認を 2 回実行させないための鍵
 );
 
 CREATE INDEX ON audit.traces (created_at DESC);
 CREATE INDEX ON audit.traces (user_id, created_at DESC);
 CREATE INDEX ON audit.command_executions (created_at DESC);
 CREATE INDEX ON audit.command_executions (command, created_at DESC);
+
+-- 二重実行を止めるのはこの一意制約。アプリ側の「事前に確認してから実行」は
+-- 同時に来た 2 本を止められない (両方が「まだ無い」を見る)。
+CREATE UNIQUE INDEX ON audit.command_executions (idempotency_key)
+    WHERE idempotency_key IS NOT NULL;

@@ -12,6 +12,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -254,6 +256,101 @@ type executeRequest struct {
 	TraceID   string         `json:"traceId"`
 }
 
+// idempotencyKey は「同じ承認を 2 回実行しない」ための鍵を決める。
+//
+// 優先順:
+//  1. Idempotency-Key ヘッダ (呼び出し側が明示した場合)
+//  2. traceId + 操作 + 引数のハッシュ
+//
+// **traceId が無ければ鍵を作らない。** 会話が無い直接呼び出しでは、
+// 二重送信と「同じ操作をもう一度やりたい」を区別できない。
+// 区別できないものを勝手に止めるほうが害が大きい。
+//
+// 引数までハッシュに含めるのは、同じ会話で対象や値を変えた 2 回目を
+// 別の操作として通すため。
+func idempotencyKey(r *http.Request, req executeRequest, args map[string]any) string {
+	if k := strings.TrimSpace(r.Header.Get("Idempotency-Key")); k != "" {
+		return k
+	}
+	if req.TraceID == "" {
+		return ""
+	}
+	// map の JSON 化は Go ではキー順が安定する (encoding/json はキーをソートする)。
+	canon, err := json.Marshal(args)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(append([]byte(req.TraceID+"\x00"+req.Command+"\x00"), canon...))
+	return hex.EncodeToString(sum[:])
+}
+
+// readBefore は更新直前の対象の状態を読む。
+//
+// 読み取り先はコマンド定義の before で宣言する (推測しない)。
+// 実行ユーザーの権限で読むので、**その人が見られない情報は監査にも残らない**。
+// 監査だけ権限を越えて読むと、監査ログが情報漏洩の経路になる。
+func (s *Server) readBefore(ctx context.Context, id authctx.Identity,
+	cmd command.Command, args map[string]any) any {
+
+	if cmd.Before == nil {
+		return nil
+	}
+	base := s.baseURL(cmd.Service)
+	if base == "" {
+		return nil
+	}
+	path := cmd.Before.Path
+	for k, v := range args {
+		path = strings.ReplaceAll(path, "{"+k+"}", url.PathEscape(fmt.Sprint(v)))
+	}
+	if strings.Contains(path, "{") {
+		return nil
+	}
+	req, err := http.NewRequestWithContext(ctx, cmd.Before.Method, base+path, nil)
+	if err != nil {
+		return nil
+	}
+	id.Apply(req)
+	resp, err := s.HTTP.Do(req)
+	if err != nil {
+		s.Log.Warn("更新前の状態を読めなかった", "command", cmd.Name, "err", err)
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		s.Log.Warn("更新前の状態を読めなかった", "command", cmd.Name, "status", resp.StatusCode)
+		return nil
+	}
+	var out any
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil
+	}
+	return unwrapEnvelope(out)
+}
+
+// unwrapEnvelope は API の封筒 (data / meta / _links) を剥がす。
+//
+// モックサービスは実 API らしく冗長な応答を返す。監査に必要なのは
+// **業務データの中身**であって、その場限りの trace_id や _links ではない。
+// 残す量が増えるほど、後から読むときに変化を見つけにくくなる。
+func unwrapEnvelope(v any) any {
+	obj, ok := v.(map[string]any)
+	if !ok {
+		return v
+	}
+	if inner, ok := obj["data"]; ok {
+		return inner
+	}
+	out := make(map[string]any, len(obj))
+	for k, val := range obj {
+		if k == "meta" || k == "_links" {
+			continue
+		}
+		out[k] = val
+	}
+	return out
+}
+
 // handleExecute は人間が確認した更新操作を実行する。
 //
 // LLM はこの経路を呼べない。呼ぶのは画面からの明示的な操作だけ。
@@ -299,11 +396,52 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ここまでの拒否は「実行していない」ので、枠は取らずに記録するだけでよい。
+	// 実際にサービスを叩く手前で枠を確保する。
+	//
+	// **サービス側の業務ルールに二重実行の防止を任せない。**
+	// order.cancel は 2 回目を 409 で弾くが (状態が変わるため)、
+	// customer.updateContact は 2 回とも 200 を返す (実測)。
+	// 弾けるかどうかが操作ごとに違うのは、防いでいるとは言えない。
+	key := idempotencyKey(r, req, args)
+	claimed, prev, execID, err := s.Audit.Claim(r.Context(), key, audit.Execution{
+		TraceID: req.TraceID, Identity: id, Command: cmd.Name, Arguments: args,
+	})
+	if err != nil {
+		// 枠が取れないなら実行しない。記録できないまま更新を通すと、
+		// 二重実行を防ぐ根拠そのものが無くなる。
+		writeErr(w, http.StatusServiceUnavailable, "監査記録に書き込めないため実行を中止しました")
+		return
+	}
+	if !claimed {
+		s.Log.Info("execute skipped (duplicate)", "user", id.UserID, "command", cmd.Name)
+		if prev != nil && prev.StatusCode == 0 {
+			writeErr(w, http.StatusConflict, "この操作は現在実行中です。しばらく待ってから確認してください。")
+			return
+		}
+		if prev != nil && prev.StatusCode != http.StatusOK {
+			// 前回が失敗しているなら、その理由をそのまま返す。
+			writeErr(w, prev.StatusCode, prev.Error)
+			return
+		}
+		// 前回成功している。もう一度実行はせず、済んでいることを伝える。
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok": true, "command": cmd.Name, "alreadyExecuted": true,
+		})
+		return
+	}
+
 	base := s.baseURL(cmd.Service)
 	if base == "" {
 		writeErr(w, http.StatusInternalServerError, "サービスの接続先が不明です")
 		return
 	}
+
+	// 更新前の状態を読む。**失敗しても実行は止めない。**
+	// 監査を厚くするための読み取りであって、更新の前提条件ではない。
+	// ここで止めると「記録を良くしたら操作ができなくなった」ことになる。
+	before := s.readBefore(r.Context(), id, cmd, args)
+
 	path := cmd.HTTP.Path
 	body := map[string]any{}
 	for k, v := range args {
@@ -315,7 +453,11 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 		body[k] = v
 	}
 	if strings.Contains(path, "{") {
-		reject(http.StatusBadRequest, "必須のパスパラメータが不足しています")
+		s.Audit.Complete(r.Context(), execID, audit.Execution{
+			TraceID: req.TraceID, Identity: id, Command: cmd.Name, Arguments: args,
+			StatusCode: http.StatusBadRequest, Error: "必須のパスパラメータが不足しています",
+		})
+		writeErr(w, http.StatusBadRequest, "必須のパスパラメータが不足しています")
 		return
 	}
 	payload, _ := json.Marshal(body)
@@ -330,7 +472,12 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := s.HTTP.Do(req2)
 	if err != nil {
-		reject(http.StatusBadGateway, fmt.Sprintf("%s サービスへ接続できません", cmd.Service))
+		msg := fmt.Sprintf("%s サービスへ接続できません", cmd.Service)
+		s.Audit.Complete(r.Context(), execID, audit.Execution{
+			TraceID: req.TraceID, Identity: id, Command: cmd.Name, Arguments: args,
+			StatusCode: http.StatusBadGateway, Error: msg,
+		})
+		writeErr(w, http.StatusBadGateway, msg)
 		return
 	}
 	defer resp.Body.Close()
@@ -348,18 +495,19 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 		if msg == "" {
 			msg = fmt.Sprintf("%s サービスが %d を返しました", cmd.Service, resp.StatusCode)
 		}
-		s.Audit.RecordExecution(r.Context(), audit.Execution{
+		s.Audit.Complete(r.Context(), execID, audit.Execution{
 			TraceID: req.TraceID, Identity: id, Command: cmd.Name,
-			Arguments: args, StatusCode: resp.StatusCode, Error: msg,
+			Arguments: args, StatusCode: resp.StatusCode, Error: msg, Before: before,
 		})
 		writeErr(w, resp.StatusCode, msg)
 		return
 	}
 	var after any
 	_ = json.Unmarshal(raw, &after)
-	s.Audit.RecordExecution(r.Context(), audit.Execution{
+	after = unwrapEnvelope(after)
+	s.Audit.Complete(r.Context(), execID, audit.Execution{
 		TraceID: req.TraceID, Identity: id, Command: cmd.Name,
-		Arguments: args, StatusCode: http.StatusOK, Result: after,
+		Arguments: args, StatusCode: http.StatusOK, Before: before, Result: after,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "command": cmd.Name})
 }

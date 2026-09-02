@@ -33,6 +33,15 @@ type Command struct {
 	HTTP        HTTPBinder       `json:"http"` // LLM には見せない
 	Parameters  map[string]Param `json:"parameters"`
 	Confirm     string           `json:"confirm"` // UI で人間に見せる確認文
+
+	// Before は更新前の状態を読むための API。監査に「何がどう変わったか」を
+	// 残すために使う。
+	//
+	// **推測ではなく宣言にする。** 更新 API のパスから読み取り API を機械的に
+	// 導けそうに見えるが (PATCH /customers/{id}/contact → GET /customers/{id})、
+	// 規則が崩れた瞬間に静かに誤った値を記録することになる。
+	// 記録が誤っているのは、記録が無いより悪い。
+	Before *HTTPBinder `json:"before,omitempty"`
 }
 
 // HTTPBinder は更新 API の呼び出し先。

@@ -37,6 +37,7 @@ func main() {
 		steps    = flag.Int("max-steps", 6, "Tool Loop の最大反復数")
 		auditDSN = flag.String("audit-dsn", "", "監査 DB の接続文字列。空なら NLOPS_DSN_FILE / NLOPS_DSN を見る")
 		noAudit  = flag.Bool("no-audit", false, "監査記録を無効にする")
+		retain   = flag.Int("audit-retain-days", 0, "トレースの保持日数。0 で無制限。更新の記録はこの 12 倍残す")
 	)
 	flag.Parse()
 
@@ -85,6 +86,18 @@ func main() {
 	srv.Audit = rec
 	if !rec.Enabled() {
 		srv.Log.Warn("監査記録が無効です。更新の承認記録もトレースも残りません")
+	}
+	// 保持期間の整理は起動時と 1 日ごと。cron を別に用意させない。
+	// 既定は 0 (無制限)。**黙って消さない**ため、消す設定は明示させる。
+	if *retain > 0 {
+		rec.Prune(context.Background(), *retain)
+		pruneTicker := time.NewTicker(24 * time.Hour)
+		defer pruneTicker.Stop()
+		go func() {
+			for range pruneTicker.C {
+				rec.Prune(context.Background(), *retain)
+			}
+		}()
 	}
 	srv.Model = *model
 	srv.Mode = loop.Mode(*mode)
