@@ -101,9 +101,17 @@ export function Shell({ children }: { children: ReactNode }) {
         minWidth: 0 が要。これが無いと flex の子は中身 (表など) の幅まで
         広がり、body に横スクロールが出る。表は表の中だけで流したい。
       */}
-      <Box component="main" sx={{ flexGrow: 1, minWidth: 0 }}>
+      {/* 縦の flex にしてあるのは、中身が「残りの高さいっぱい」を使えるようにするため。
+          アシスタント画面が初期状態で入力欄を上下中央に置くのに要る。 */}
+      <Box
+        component="main"
+        sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}
+      >
         <Toolbar />
-        <Container maxWidth="lg" sx={{ py: { xs: 2, sm: 3 } }}>
+        <Container
+          maxWidth="lg"
+          sx={{ py: { xs: 2, sm: 3 }, flexGrow: 1, display: 'flex', flexDirection: 'column' }}
+        >
           {children}
         </Container>
       </Box>

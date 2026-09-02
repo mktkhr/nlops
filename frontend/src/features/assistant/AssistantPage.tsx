@@ -102,7 +102,7 @@ function toPath(nav: Navigation): string {
 }
 
 export function AssistantPage() {
-  const { current, error: userError, loading: userLoading } = useUser()
+  const { current, error: userError } = useUser()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [steps, setSteps] = useState<Step[]>([])
@@ -123,6 +123,10 @@ export function AssistantPage() {
   // 制約デコードの JSON が出てこない失敗が増える (docs/decisions.md)。
   const [thinking, setThinking] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+
+  // 何も始まっていない状態か。入力欄を中央に置くかどうかの判断に使う。
+  const empty =
+    steps.length === 0 && !answer && !navigation && !proposal && !error && !running
 
   // 経過秒。数十秒かかることがあるので、動いていることが分かるようにする。
   useEffect(() => {
@@ -190,6 +194,58 @@ export function AssistantPage() {
     [current, thinking],
   )
 
+  const form = (
+    <PromptForm
+      query={query}
+      setQuery={setQuery}
+      ask={(q) => void ask(q)}
+      running={running}
+      thinking={thinking}
+      setThinking={setThinking}
+      centered={empty}
+    />
+  )
+
+  if (empty) {
+    // 何も始まっていないときは入力欄を画面の中央に置く。
+    // 業務画面の見出しより先に「何を聞けばいいか」を見せたい。
+    return (
+      <Box
+        sx={{
+          flexGrow: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          maxWidth: 720,
+          width: '100%',
+          mx: 'auto',
+        }}
+      >
+        {userError && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {userError}
+          </Alert>
+        )}
+        <Typography
+          variant="h5"
+          component="h1"
+          sx={{ fontWeight: 700, textAlign: 'center', mb: 1 }}
+        >
+          何を調べますか？
+        </Typography>
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          sx={{ textAlign: 'center', mb: 3 }}
+        >
+          必要な業務 API を選んで実行し、結果をまとめて答えます。
+          参照できる範囲はヘッダーで選んだ実行ユーザーの権限に従います。
+        </Typography>
+        {form}
+      </Box>
+    )
+  }
+
   return (
     <Box>
       <PageHeader
@@ -203,79 +259,7 @@ export function AssistantPage() {
         </Alert>
       )}
 
-      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        {/* 狭い画面では横に並べると入力欄が数文字分しか残らない。縦に積む。 */}
-        <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          spacing={1}
-          sx={{ alignItems: { sm: 'flex-start' } }}
-        >
-          <TextField
-            fullWidth
-            multiline
-            maxRows={4}
-            size="small"
-            placeholder="例: 田中太郎さんの未発送の注文を確認したい"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                void ask(query)
-              }
-            }}
-            disabled={running || !current}
-          />
-          <Button
-            variant="contained"
-            startIcon={running ? <CircularProgress size={16} /> : <SendIcon />}
-            onClick={() => void ask(query)}
-            // 実行ユーザーが決まっていないと権限を伴う問い合わせができない。
-            // 押しても無反応になるより、押せないことを見せる。
-            disabled={running || !query.trim() || !current || userLoading}
-            sx={{ minWidth: 104, height: 40, alignSelf: { xs: 'flex-end', sm: 'auto' } }}
-          >
-            送信
-          </Button>
-        </Stack>
-        {/* Tooltip は触れる端末では開かない。要点はラベルに出し、
-            詳しい数字だけを Tooltip に残す。 */}
-        <Tooltip
-          title="モデルに考えさせてから答えさせます。実測では精度が 98% → 78% に落ち、5 倍以上遅くなります (失敗の大半は応答が空になる形)。違いを見るための切り替えです。"
-          placement="top-start"
-        >
-          <FormControlLabel
-            sx={{ mt: 1, mr: 0, alignItems: 'center' }}
-            control={
-              <Switch
-                size="small"
-                checked={thinking}
-                onChange={(e) => setThinking(e.target.checked)}
-                disabled={running}
-              />
-            }
-            label={
-              <Typography variant="body2" color="text.secondary">
-                モデルに思考させる（遅くなり、精度は落ちます）
-              </Typography>
-            }
-          />
-        </Tooltip>
-        <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap', gap: 1 }}>
-          {EXAMPLES.map((ex) => (
-            <Chip
-              key={ex}
-              label={ex}
-              size="small"
-              variant="outlined"
-              onClick={() => {
-                setQuery(ex)
-                void ask(ex)
-              }}
-              disabled={running || !current}
-            />
-          ))}
-        </Stack>
-      </Paper>
+      {form}
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -609,6 +593,121 @@ function ProposalCard({
           </Button>
         </Stack>
       )}
+    </Paper>
+  )
+}
+
+/**
+ * 問い合わせの入力欄。
+ *
+ * 何も始まっていないときは画面の中央に置き、会話が始まったら上へ移す。
+ * 初回に「まず何をすればいいか」が一目で分かるほうがよく、
+ * 会話が始まった後は結果のほうが主役になる。
+ */
+function PromptForm({
+  query,
+  setQuery,
+  ask,
+  running,
+  thinking,
+  setThinking,
+  centered,
+}: {
+  query: string
+  setQuery: (v: string) => void
+  ask: (q: string) => void
+  running: boolean
+  thinking: boolean
+  setThinking: (v: boolean) => void
+  centered: boolean
+}) {
+  const { current, loading: userLoading } = useUser()
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const disabled = running || !current
+
+  // autoFocus では効かない。実行ユーザーが決まるまで入力欄は disabled で、
+  // **無効な要素はフォーカスを受け取れない**。マウント時に一度だけ効く
+  // autoFocus では、有効になった後に当たらない。
+  // 有効になった時点で当てに行き、中央表示のときだけにする
+  // (会話が始まった後に奪うと、結果を読んでいる最中に画面が入力欄へ飛ぶ)。
+  useEffect(() => {
+    if (centered && !disabled) inputRef.current?.focus()
+  }, [centered, disabled])
+
+  return (
+      <Paper variant="outlined" sx={{ p: 2, mb: centered ? 0 : 2 }}>
+      {/* 狭い画面では横に並べると入力欄が数文字分しか残らない。縦に積む。 */}
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1}
+        sx={{ alignItems: { sm: 'flex-start' } }}
+      >
+        <TextField
+          fullWidth
+          multiline
+          maxRows={4}
+          size="small"
+          inputRef={inputRef}
+          placeholder="例: 田中太郎さんの未発送の注文を確認したい"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              ask(query)
+            }
+          }}
+          disabled={disabled}
+        />
+        <Button
+          variant="contained"
+          startIcon={running ? <CircularProgress size={16} /> : <SendIcon />}
+          onClick={() => ask(query)}
+          // 実行ユーザーが決まっていないと権限を伴う問い合わせができない。
+          // 押しても無反応になるより、押せないことを見せる。
+          disabled={running || !query.trim() || !current || userLoading}
+          sx={{ minWidth: 104, height: 40, alignSelf: { xs: 'flex-end', sm: 'auto' } }}
+        >
+          送信
+        </Button>
+      </Stack>
+      {/* Tooltip は触れる端末では開かない。要点はラベルに出し、
+          詳しい数字だけを Tooltip に残す。 */}
+      <Tooltip
+        title="モデルに考えさせてから答えさせます。実測では精度が 98% → 78% に落ち、5 倍以上遅くなります (失敗の大半は応答が空になる形)。違いを見るための切り替えです。"
+        placement="top-start"
+      >
+        <FormControlLabel
+          sx={{ mt: 1, mr: 0, alignItems: 'center' }}
+          control={
+            <Switch
+              size="small"
+              checked={thinking}
+              onChange={(e) => setThinking(e.target.checked)}
+              disabled={running}
+            />
+          }
+          label={
+            <Typography variant="body2" color="text.secondary">
+              モデルに思考させる（遅くなり、精度は落ちます）
+            </Typography>
+          }
+        />
+      </Tooltip>
+      <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap', gap: 1 }}>
+        {EXAMPLES.map((ex) => (
+          <Chip
+            key={ex}
+            label={ex}
+            size="small"
+            variant="outlined"
+            onClick={() => {
+              setQuery(ex)
+              ask(ex)
+            }}
+            disabled={running || !current}
+          />
+        ))}
+      </Stack>
     </Paper>
   )
 }
