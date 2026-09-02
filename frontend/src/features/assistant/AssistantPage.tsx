@@ -19,6 +19,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import EditNoteIcon from '@mui/icons-material/EditNote'
 import ErrorIcon from '@mui/icons-material/Error'
+import AddIcon from '@mui/icons-material/Add'
 import SendIcon from '@mui/icons-material/Send'
 import { executeCommand, streamAsk } from '../../shared/api/client'
 import type { Done, ExecuteResult, Navigation, Proposal, Step } from '../../shared/api/client'
@@ -196,6 +197,25 @@ export function AssistantPage() {
     [current, thinking],
   )
 
+  // 最初の状態へ戻す。ask の頭でやっているリセットと同じものを、
+  // 質問文まで含めて行う。
+  const reset = useCallback(() => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    setAsked('')
+    setQuery('')
+    setSteps([])
+    setAnswer('')
+    setDone(null)
+    setProposal(null)
+    setNavigation(null)
+    setTraceId('')
+    setError('')
+    setStarted(false)
+    setElapsed(0)
+    setRunning(false)
+  }, [])
+
   const form = (
     <PromptForm
       query={query}
@@ -204,7 +224,6 @@ export function AssistantPage() {
       running={running}
       thinking={thinking}
       setThinking={setThinking}
-      centered={empty}
     />
   )
 
@@ -347,25 +366,16 @@ export function AssistantPage() {
       {done && <AppliedFilters filters={done.filters} />}
       {done && <Metrics done={done} />}
 
-      {/* 入力欄は最下部へ。結果を読み終えたところに次の入力がある形にする。
-          sticky なので、結果が長くても画面から出ていかない。 */}
-      <Box
-        sx={{
-          mt: 'auto',
-          position: 'sticky',
-          bottom: 0,
-          pt: 1,
-          // 結果が下に透けると読みにくいので背景を敷く。
-          bgcolor: 'background.default',
-        }}
-      >
-        {form}
-        {/* この基盤は 1 問ずつ独立して答える。見た目がチャットに近いと
-            追い質問が通ると思われるので、そうでないことを書いておく。 */}
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, pb: 0.5 }}>
-          1 問ずつ独立して処理します（前のやり取りは引き継ぎません）
-        </Typography>
-      </Box>
+      {/* 実行中は入力欄を出さない。押しても何も起きない欄を残すのは、
+          実装の都合 (1 問ずつしか処理できない) を利用者に見せているだけ。
+          終わったら「新しい質問」で最初の状態へ戻す。 */}
+      {!running && (
+        <Box sx={{ mt: 3, display: 'flex', justifyContent: 'center' }}>
+          <Button variant="outlined" startIcon={<AddIcon />} onClick={reset}>
+            新しい質問
+          </Button>
+        </Box>
+      )}
     </Box>
   )
 }
@@ -632,11 +642,11 @@ function ProposalCard({
 }
 
 /**
- * 問い合わせの入力欄。
+ * 問い合わせの入力欄。**質問を出す前にしか出さない。**
  *
- * 何も始まっていないときは画面の中央に置き、会話が始まったら上へ移す。
- * 初回に「まず何をすればいいか」が一目で分かるほうがよく、
- * 会話が始まった後は結果のほうが主役になる。
+ * 実行中は押しても何も起きないので隠し、終わったら「新しい質問」を出す。
+ * 動かない入力欄を置いたままにするのは、1 問ずつしか処理できないという
+ * 実装の都合を利用者に見せているだけになる。
  */
 function PromptForm({
   query,
@@ -645,7 +655,6 @@ function PromptForm({
   running,
   thinking,
   setThinking,
-  centered,
 }: {
   query: string
   setQuery: (v: string) => void
@@ -653,7 +662,6 @@ function PromptForm({
   running: boolean
   thinking: boolean
   setThinking: (v: boolean) => void
-  centered: boolean
 }) {
   const { current, loading: userLoading } = useUser()
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -665,18 +673,18 @@ function PromptForm({
   // 有効になった時点で当てに行き、中央表示のときだけにする
   // (会話が始まった後に奪うと、結果を読んでいる最中に画面が入力欄へ飛ぶ)。
   useEffect(() => {
-    if (centered && !disabled) inputRef.current?.focus()
-  }, [centered, disabled])
+    if (!disabled) inputRef.current?.focus()
+  }, [disabled])
 
   return (
-      <Paper variant="outlined" sx={{ p: centered ? 2 : 1.25, mb: 0 }}>
+      <Paper variant="outlined" sx={{ p: 2 }}>
       {/* 初期状態は縦に積む。狭い画面で横に並べると入力欄が数文字分しか残らない。
           会話中の下部バーでは逆に横並びにする。縦積みだと 375px で
           バーが画面の 28% を占め、結果の見える範囲がその分減る。 */}
       <Stack
-        direction={centered ? { xs: 'column', sm: 'row' } : 'row'}
+        direction={{ xs: 'column', sm: 'row' }}
         spacing={1}
-        sx={{ alignItems: centered ? { sm: 'flex-start' } : 'flex-start' }}
+        sx={{ alignItems: { sm: 'flex-start' } }}
       >
         <TextField
           fullWidth
@@ -701,17 +709,9 @@ function PromptForm({
           // 実行ユーザーが決まっていないと権限を伴う問い合わせができない。
           // 押しても無反応になるより、押せないことを見せる。
           disabled={running || !query.trim() || !current || userLoading}
-          sx={{
-            minWidth: centered ? 104 : 44,
-            height: 40,
-            px: centered ? undefined : 0,
-            flexShrink: 0,
-            alignSelf: centered ? { xs: 'flex-end', sm: 'auto' } : 'auto',
-            // 会話中はアイコンだけにして幅を返す。
-            '& .MuiButton-startIcon': centered ? undefined : { m: 0 },
-          }}
+          sx={{ minWidth: 104, height: 40, alignSelf: { xs: 'flex-end', sm: 'auto' } }}
         >
-          {centered ? '送信' : ''}
+          送信
         </Button>
       </Stack>
       {/* Tooltip は触れる端末では開かない。要点はラベルに出し、
@@ -723,7 +723,7 @@ function PromptForm({
         placement="top-start"
       >
         <FormControlLabel
-          sx={{ mt: centered ? 1 : 0.5, mr: 0, alignItems: 'center' }}
+          sx={{ mt: 1, mr: 0, alignItems: 'center' }}
           control={
             <Switch
               size="small"
@@ -734,14 +734,12 @@ function PromptForm({
           }
           label={
             <Typography variant="body2" color="text.secondary">
-              {centered ? 'モデルに思考させる（遅くなり、精度は落ちます）' : '思考させる'}
+              モデルに思考させる（遅くなり、精度は落ちます）
             </Typography>
           }
         />
       </Tooltip>
-      {/* 例は最初だけ。会話が始まった後は結果の邪魔になる。 */}
-      {centered && (
-        <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap', gap: 1 }}>
+      <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap', gap: 1 }}>
           {EXAMPLES.map((ex) => (
             <Chip
               key={ex}
@@ -752,9 +750,8 @@ function PromptForm({
               onClick={() => ask(ex)}
               disabled={disabled}
             />
-          ))}
-        </Stack>
-      )}
+        ))}
+      </Stack>
     </Paper>
   )
 }
