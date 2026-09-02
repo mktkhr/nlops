@@ -59,6 +59,7 @@ frontend/         React + MUI (pnpm + Vite+)
   src/app/          シェルとルーティング
   src/features/     assistant / order / customer / audit
   src/shared/       api / ui / user
+  (テスト: cd frontend && pnpm test)
 eval/             評価ハーネス
   golden/cases.json ゴールデンセット (180 ケース / 10 カテゴリ)
   cmd/spike/        初手 Tool 選定だけを測る (サービス起動不要)

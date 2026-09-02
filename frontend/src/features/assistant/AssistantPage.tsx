@@ -23,6 +23,7 @@ import SendIcon from '@mui/icons-material/Send'
 import { executeCommand, streamAsk } from '../../shared/api/client'
 import type { Done, ExecuteResult, Navigation, Proposal, Step } from '../../shared/api/client'
 import { NAV } from '../../app/nav'
+import { AnswerText } from '../../shared/ui/AnswerText'
 import { PageHeader } from '../../shared/ui/PageHeader'
 import { useUser } from '../../shared/user/user-context'
 
@@ -339,9 +340,9 @@ export function AssistantPage() {
           <Typography variant="overline" color="text.secondary">
             回答
           </Typography>
-          <Typography sx={{ mt: 1, whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>
-            {answer}
-          </Typography>
+          <Box sx={{ mt: 1 }}>
+            <AnswerText text={answer} />
+          </Box>
         </Paper>
       )}
 

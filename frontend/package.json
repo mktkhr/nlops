@@ -8,7 +8,8 @@
     "build": "tsc -b && vp build",
     "lint": "vp lint",
     "preview": "vp preview",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "test": "vp test"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
