@@ -21,6 +21,7 @@ import ErrorIcon from '@mui/icons-material/Error'
 import SendIcon from '@mui/icons-material/Send'
 import { executeCommand, streamAsk } from '../../shared/api/client'
 import type { Done, Navigation, Proposal, Step } from '../../shared/api/client'
+import { NAV } from '../../app/nav'
 import { PageHeader } from '../../shared/ui/PageHeader'
 import { useUser } from '../../shared/user/user-context'
 
@@ -48,6 +49,10 @@ export function AssistantPage() {
   const [answer, setAnswer] = useState('')
   const [done, setDone] = useState<Done | null>(null)
   const [proposal, setProposal] = useState<Proposal | null>(null)
+  // 画面遷移は「提案」として扱い、すぐには飛ばさない。
+  // 勝手に飛ぶと会話も、使われた絞り込みも見えないまま消える。
+  // 更新操作と同じで、LLM は提案し、移動するかは人間が決める。
+  const [navigation, setNavigation] = useState<Navigation | null>(null)
   const [traceId, setTraceId] = useState('')
   const [error, setError] = useState('')
   const [running, setRunning] = useState(false)
@@ -75,8 +80,7 @@ export function AssistantPage() {
           {
             onStart: (st) => setTraceId(st.traceId),
             onStep: (s) => setSteps((prev) => [...prev, s]),
-            // 画面を開くのが答えなので、そのまま遷移する。
-            onNavigate: (nav) => navigate(toPath(nav)),
+            onNavigate: setNavigation,
             onProposal: setProposal,
             onAnswer: setAnswer,
             onDone: setDone,
@@ -211,6 +215,13 @@ export function AssistantPage() {
         </Paper>
       )}
 
+      {navigation && (
+        <NavigationCard
+          nav={navigation}
+          onOpen={() => navigate(toPath(navigation))}
+        />
+      )}
+
       {proposal && (
         <ProposalCard
           proposal={proposal}
@@ -219,7 +230,8 @@ export function AssistantPage() {
         />
       )}
 
-      {answer && (
+      {/* 遷移の場合は理由をカード側で見せているので、同じ文言を二度出さない。 */}
+      {answer && answer !== navigation?.reason && (
         <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
           <Typography variant="overline" color="text.secondary">
             回答
@@ -233,6 +245,62 @@ export function AssistantPage() {
       {done && <AppliedFilters filters={done.filters} />}
       {done && <Metrics done={done} />}
     </Box>
+  )
+}
+
+/**
+ * 画面遷移の提案。押して初めて移動する。
+ *
+ * 自動で飛ばしていたときは、会話も「使われた絞り込み」も見えないまま
+ * 消えていた。**遷移先とフィルタを見てから移動を決められる**ようにする。
+ * 絞り込みをここで見せるのは、モデルが頼まれていない条件を足すことが
+ * あるため (docs/decisions.md)。
+ */
+function NavigationCard({ nav, onOpen }: { nav: Navigation; onOpen: () => void }) {
+  const label = NAV.find((n) => n.to === nav.route)?.label ?? nav.route
+  const filters = Object.entries(nav.filters ?? {}).filter(([, v]) => v !== '')
+  return (
+    <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+      <Typography variant="overline" color="text.secondary">
+        画面で確認できます
+      </Typography>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1.5}
+        sx={{ mt: 1, alignItems: { sm: 'center' }, justifyContent: 'space-between' }}
+      >
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontWeight: 600 }}>
+            {label}
+            {nav.count !== undefined && (
+              <Typography component="span" color="text.secondary" sx={{ ml: 1 }}>
+                該当 {nav.count.toLocaleString()} 件
+              </Typography>
+            )}
+          </Typography>
+          {filters.length > 0 && (
+            <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap', rowGap: 1 }}>
+              {filters.map(([k, v]) => (
+                <Chip key={k} size="small" variant="outlined" label={`${k} = ${v}`} />
+              ))}
+            </Stack>
+          )}
+          {nav.reason && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              {nav.reason}
+            </Typography>
+          )}
+        </Box>
+        <Button
+          variant="contained"
+          startIcon={<OpenInNewIcon />}
+          onClick={onOpen}
+          sx={{ flexShrink: 0, alignSelf: { xs: 'stretch', sm: 'center' } }}
+        >
+          この条件で開く
+        </Button>
+      </Stack>
+    </Paper>
   )
 }
 

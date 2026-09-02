@@ -11,6 +11,8 @@ export type Navigation = {
   route: string
   filters?: Record<string, string>
   reason?: string
+  /** その画面に該当する件数。数えられなかった場合は入らない (0 と区別する)。 */
+  count?: number
 }
 
 export type Proposal = {

@@ -195,11 +195,17 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 		send("proposal", tr.Proposal)
 	}
 	if tr.Navigate != nil {
-		send("navigate", map[string]any{
+		nav := map[string]any{
 			"route":   tr.Navigate.Route,
 			"filters": tr.Navigate.Filters,
 			"reason":  tr.Navigate.Reason,
-		})
+		}
+		// 遷移するかを決めるための手がかり。数えられなければ入れない
+		// (0 を入れると「該当なし」と区別がつかない)。
+		if n, ok := s.screenCount(r.Context(), id, tr.Navigate.Route, tr.Navigate.Filters); ok {
+			nav["count"] = n
+		}
+		send("navigate", nav)
 	}
 	send("answer", map[string]any{"answer": tr.Answer})
 	send("done", map[string]any{
@@ -779,4 +785,69 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 
 func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]any{"error": msg})
+}
+
+// screenCount は画面 (route + filters) に該当する件数を返す。
+//
+// 画面遷移は Tool を 1 つも実行しないので、そのままではアシスタント画面に
+// 「どの画面を開くか」しか出せない。**それだけではボタンを 1 つ増やしただけ**に
+// なるので、遷移せずに済むだけの手がかり (件数) をここで足す。
+//
+// 実行ユーザーの権限で読む。見えない範囲の件数を教えると、
+// 画面には出ない情報を件数として漏らすことになる。
+// 数えられなければ 0 と false を返し、**黙って 0 件と見せない**。
+func (s *Server) screenCount(ctx context.Context, id authctx.Identity,
+	route string, filters map[string]string) (int, bool) {
+
+	q := url.Values{}
+	for k, v := range filters {
+		if v != "" {
+			q.Set(k, v)
+		}
+	}
+	// 1 行あれば count は取れる。転送量を増やさない。
+	q.Set("limit", "1")
+
+	switch route {
+	case "/orders":
+		ids, ok := s.resolveCustomerIDs(ctx, id, q.Get("customer_name"))
+		if !ok {
+			return 0, false
+		}
+		q.Del("customer_name")
+		for _, cid := range ids {
+			q.Add("customer_ids", cid)
+		}
+		p, _, err := s.fetchPage(ctx, id, "order", "/orders", q)
+		return p.Count, err == nil
+	case "/customers":
+		p, _, err := s.fetchPage(ctx, id, "customer", "/customers", q)
+		return p.Count, err == nil
+	}
+	return 0, false
+}
+
+// resolveCustomerIDs は氏名を顧客 ID の集合へ解決する。
+// 氏名の指定が無ければ空の集合を返す (絞り込まない)。
+// 絞り込めない (候補が多すぎる / 読めない) ときは ok=false。
+func (s *Server) resolveCustomerIDs(ctx context.Context, id authctx.Identity,
+	name string) ([]string, bool) {
+
+	if name == "" {
+		return nil, true
+	}
+	q := url.Values{}
+	q.Set("name", name)
+	q.Set("limit", strconv.Itoa(maxResolve))
+	cust, _, err := s.fetchPage(ctx, id, "customer", "/customers", q)
+	if err != nil || cust.HasMore {
+		return nil, false
+	}
+	out := make([]string, 0, len(cust.Items))
+	for _, c := range cust.Items {
+		if cid, ok := c["customer_id"].(string); ok {
+			out = append(out, cid)
+		}
+	}
+	return out, true
 }
