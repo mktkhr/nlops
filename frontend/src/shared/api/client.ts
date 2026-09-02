@@ -41,6 +41,7 @@ export type Start = {
   user: string
   model: string
   traceId: string
+  thinking?: boolean
 }
 
 export type Done = {
@@ -205,11 +206,12 @@ export async function streamAsk(
   userId: string,
   handlers: AskHandlers,
   signal?: AbortSignal,
+  thinking = false,
 ): Promise<void> {
   const res = await fetch('/api/ask', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', [USER_HEADER]: userId },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, thinking }),
     signal,
   })
   if (!res.ok || !res.body) {

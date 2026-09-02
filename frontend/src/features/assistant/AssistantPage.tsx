@@ -6,6 +6,9 @@ import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import CircularProgress from '@mui/material/CircularProgress'
 import Divider from '@mui/material/Divider'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Switch from '@mui/material/Switch'
+import Tooltip from '@mui/material/Tooltip'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
@@ -48,6 +51,9 @@ export function AssistantPage() {
   const [traceId, setTraceId] = useState('')
   const [error, setError] = useState('')
   const [running, setRunning] = useState(false)
+  // モデルの思考。既定は off。on にすると 5 倍以上遅くなり、
+  // 制約デコードの JSON が出てこない失敗が増える (docs/decisions.md)。
+  const [thinking, setThinking] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
   const ask = useCallback(
@@ -77,6 +83,7 @@ export function AssistantPage() {
             onError: setError,
           },
           controller.signal,
+          thinking,
         )
       } catch (e) {
         if (!controller.signal.aborted) {
@@ -87,7 +94,7 @@ export function AssistantPage() {
         abortRef.current = null
       }
     },
-    [current, running, navigate],
+    [current, running, navigate, thinking],
   )
 
   return (
@@ -132,6 +139,27 @@ export function AssistantPage() {
             送信
           </Button>
         </Stack>
+        <Tooltip
+          title="モデルに考えさせてから答えさせます。実測では精度が 98% → 78% に落ち、5 倍以上遅くなります (失敗の大半は応答が空になる形)。違いを見るための切り替えです。"
+          placement="right"
+        >
+          <FormControlLabel
+            sx={{ mt: 1 }}
+            control={
+              <Switch
+                size="small"
+                checked={thinking}
+                onChange={(e) => setThinking(e.target.checked)}
+                disabled={running}
+              />
+            }
+            label={
+              <Typography variant="body2" color="text.secondary">
+                モデルに思考させる（遅くなり、精度は落ちます）
+              </Typography>
+            }
+          />
+        </Tooltip>
         <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap', gap: 1 }}>
           {EXAMPLES.map((ex) => (
             <Chip

@@ -56,6 +56,15 @@ type Options struct {
 	// OnStep は 1 ステップ完了ごとに呼ばれる。BFF が進捗をストリームするために使う。
 	OnStep func(Step)
 
+	// Thinking が true のとき、モデルの思考を有効にする。
+	//
+	// **要求ごとに切り替える**必要があるので、llm.Client の DisableThinking では
+	// なく Request 側で指定する (Client は 1 つを共有しているため)。
+	// 既定は false。実測では精度が 98% → 78% に落ち、失敗の大半は
+	// 「制約デコードの JSON が出てこない」という最悪の壊れ方をする
+	// (docs/decisions.md「モデルの thinking を有効にするとどうなるか」)。
+	Thinking bool
+
 	// ForceFirst が設定されていると、その Tool 呼び出しをモデルが選んだことにして
 	// step 1 として実行し、以降は通常どおり Loop を回す。
 	//
@@ -296,9 +305,11 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 		if forced {
 			schema = prompt.FinishOnlySchema()
 		}
+		effort, kwargs := think(opt)
 		resp, err := r.LLM.Chat(ctx, llm.Request{
 			Model: opt.Model, Temperature: 0, MaxTokens: opt.MaxTokens, Messages: msgs,
-			ResponseFormat: &llm.ResponseFormat{Type: "json_schema", JSONSchema: schema},
+			ResponseFormat:  &llm.ResponseFormat{Type: "json_schema", JSONSchema: schema},
+			ReasoningEffort: effort, ChatTemplateKwargs: kwargs,
 		})
 		if resp != nil {
 			step.LLMms = ms(resp.Wall)
@@ -453,8 +464,10 @@ answer:
 }
 
 func (r *Runner) routeServices(ctx context.Context, query string, opt Options) ([]string, *llm.Response, error) {
+	effort, kwargs := think(opt)
 	resp, err := r.LLM.Chat(ctx, llm.Request{
 		Model: opt.Model, Temperature: 0, MaxTokens: opt.MaxTokens,
+		ReasoningEffort: effort, ChatTemplateKwargs: kwargs,
 		Messages: []llm.Message{
 			{Role: "system", Content: prompt.ServiceRouterSystem(r.Catalog)},
 			{Role: "user", Content: query},
@@ -502,8 +515,12 @@ func (r *Runner) finalAnswer(ctx context.Context, history []llm.Message, query s
 	if opt.MaxTokens > maxTok {
 		maxTok = opt.MaxTokens
 	}
+	// ここは response_format を使わないので、制約デコードと思考が干渉しない
+	// 唯一の呼び出し。思考を入れるなら本来ここが一番安全。
+	effort, kwargs := think(opt)
 	resp, err := r.LLM.Chat(ctx, llm.Request{
 		Model: opt.Model, Temperature: 0, MaxTokens: maxTok, Messages: msgs,
+		ReasoningEffort: effort, ChatTemplateKwargs: kwargs,
 	})
 	if err != nil {
 		return "", resp, err
@@ -528,6 +545,17 @@ func renderResult(tool string, res executor.Result, step, maxSteps int) string {
 }
 
 // barrenResult は「次の判断材料が増えなかった結果」かどうかを返す。
+// think は 1 リクエスト分の思考設定を返す。
+//
+// llm.Client は値が空のときだけ既定 (思考オフ) を埋めるので、
+// ここで明示すればクライアント共有のままでも要求ごとに切り替えられる。
+func think(opt Options) (string, map[string]any) {
+	if !opt.Thinking {
+		return "", nil // クライアント側の既定 (思考オフ) に任せる
+	}
+	return "high", map[string]any{"enable_thinking": true}
+}
+
 func barrenResult(res executor.Result) bool {
 	if res.Error != "" || res.Denied || (res.Status != 0 && res.Status != 200) {
 		return true
@@ -547,6 +575,8 @@ func barrenResult(res executor.Result) bool {
 // 戻り値の 2 つ目が空でなければ遷移させず、その内容を LLM へ返す。
 // classifyIntent は「画面を開くだけで済むか」を 2 択で判定する。
 func (r *Runner) classifyIntent(ctx context.Context, query string, opt Options) (string, *llm.Response, error) {
+	// **Intent Gate には思考を入れない。** 出力は 1 文字 (n/t/w) で
+	// max_tokens 16 しかないため、思考を有効にすると必ず枠を使い切って空になる。
 	resp, err := r.LLM.Chat(ctx, llm.Request{
 		Model: opt.Model, Temperature: 0, MaxTokens: 16,
 		Messages: []llm.Message{

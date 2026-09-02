@@ -65,9 +65,6 @@ func main() {
 
 	lc := llm.New(*base)
 	lc.ReasoningEffort = *reason
-	// 思考を止めているのは reasoning_effort と enable_thinking の両方なので、
-	// 有効化するには両方外す必要がある。
-	lc.DisableThinking = !*thinking
 	runner := loop.New(cat, lc)
 	if *rtPath != "" {
 		routes, err := uiroute.Load(*rtPath)
@@ -90,6 +87,7 @@ func main() {
 	tr := runner.Run(context.Background(), id, query, loop.Options{
 		Model: *model, Mode: loop.Mode(*mode), StrictArgs: *strict,
 		MaxSteps: *steps, MaxTokens: *maxTok, Answer: true, StopGuard: !*noStop, IntentGate: *gate,
+		Thinking: *thinking,
 	})
 
 	if *asJSON {

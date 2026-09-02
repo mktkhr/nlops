@@ -120,7 +120,19 @@ func (s *Server) identity(r *http.Request) (authctx.Identity, error) {
 
 type askRequest struct {
 	Query string `json:"query"`
+
+	// Thinking は要求ごとにモデルの思考を有効にする。
+	// 既定は false。有効にすると遅くなり、制約デコードの JSON が
+	// 出てこない失敗が増える (docs/decisions.md)。画面から切り替えて
+	// 違いを見られるようにするための口。
+	Thinking bool `json:"thinking"`
 }
+
+// thinkingMaxTokens は思考を有効にしたときの 1 反復あたりの上限。
+//
+// 既定の 512 のままだと reasoning が枠を使い切って content が空になり、
+// 「切り替えたら必ず壊れる」ように見える。実測に基づく値。
+const thinkingMaxTokens = 8192
 
 func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	id, err := s.identity(r)
@@ -156,14 +168,21 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	traceID := audit.NewTraceID()
 	send("start", map[string]any{
 		"query": req.Query, "user": id.UserID, "model": s.Model, "traceId": traceID,
+		"thinking": req.Thinking,
 	})
+
+	maxTok := 512
+	if req.Thinking {
+		maxTok = thinkingMaxTokens
+	}
 
 	// Tool Loop は 1 要求あたり数秒かかる。何も返さないと壊れて見えるので、
 	// ステップ完了ごとに逐次流す。OnStep は Run と同じ goroutine から呼ばれる。
 	tr := s.Runner.Run(r.Context(), id, req.Query, loop.Options{
 		Model: s.Model, Mode: s.Mode, StrictArgs: true,
-		MaxSteps: s.MaxSteps, MaxTokens: 512, Answer: true, StopGuard: true, IntentGate: true,
-		OnStep: func(st loop.Step) { send("step", toStepDTO(st)) },
+		MaxSteps: s.MaxSteps, MaxTokens: maxTok, Answer: true, StopGuard: true, IntentGate: true,
+		Thinking: req.Thinking,
+		OnStep:   func(st loop.Step) { send("step", toStepDTO(st)) },
 	})
 
 	if tr.Err != "" {
