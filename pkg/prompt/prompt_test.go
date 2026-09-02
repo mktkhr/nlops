@@ -32,3 +32,23 @@ func TestLeaksSystem(t *testing.T) {
 		t.Errorf("短い行は対象外にすべき: %v", hit)
 	}
 }
+
+func TestIntentSchemaHasOutOfScope(t *testing.T) {
+	// 逃げ道 (x) を消すと、無関係な質問でも Tool を踏まざるを得なくなる。
+	// 「Tool を 1 回も実行しないうちは finish を許さない」防御があるため。
+	sc, ok := IntentSchema().Schema.(map[string]any)
+	if !ok {
+		t.Fatal("スキーマの形が変わっている")
+	}
+	props := sc["properties"].(map[string]any)
+	enum := props["m"].(map[string]any)["enum"].([]string)
+	want := map[string]bool{"n": true, "t": true, "w": true, "x": true}
+	if len(enum) != len(want) {
+		t.Fatalf("判定は 4 値であるべき: %v", enum)
+	}
+	for _, v := range enum {
+		if !want[v] {
+			t.Errorf("想定外の判定値: %q", v)
+		}
+	}
+}

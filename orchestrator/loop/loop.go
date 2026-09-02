@@ -84,6 +84,13 @@ type Options struct {
 	ForceFirst *executor.Call
 }
 
+// OutOfScopeAnswer は業務データで答えられない要求への返答。
+//
+// 何ができるかを添える。ただ「答えられません」とだけ返すと、
+// 利用者は何を聞けばよいのか分からないまま放り出される。
+const OutOfScopeAnswer = "この問い合わせにはお答えできません。" +
+	"顧客・注文・在庫・出荷・請求に関する参照や操作をお尋ねください。"
+
 // Turn は 1 往復。連続した問い合わせで前の文脈を渡すために使う。
 type Turn struct {
 	Query  string `json:"query"`
@@ -232,6 +239,17 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 			case "write":
 				writeMode = true
 				routes = nil
+			case "out_of_scope":
+				// 業務データでは答えられない要求。**Loop に入れない。**
+				//
+				// 入れると「Tool を 1 回も実行しないうちは finish を許さない」
+				// 防御に当たり、答えようのない質問でも顧客を全件読む
+				// (実測: 「あなたはなんというモデル？」に customer.search 2 回)。
+				//
+				// 意味の通らない答えを返すより、答えられないと言うほうがよい。
+				tr.Answer = OutOfScopeAnswer
+				tr.TotalMS = ms(time.Since(start))
+				return tr
 			default:
 				routes = nil
 			}
@@ -700,6 +718,8 @@ func (r *Runner) classifyIntent(ctx context.Context, query string, opt Options) 
 		return "navigate", resp, nil
 	case "w":
 		return "write", resp, nil
+	case "x":
+		return "out_of_scope", resp, nil
 	}
 	return "tool", resp, nil
 }
