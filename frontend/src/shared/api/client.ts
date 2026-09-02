@@ -171,22 +171,32 @@ export function fetchCustomers(
  * 実行できるかどうかの業務判断はサービス側にあるので、
  * 断られた場合はその理由をそのまま表示する。
  */
+export type ExecuteResult = {
+  ok: boolean
+  command: string
+  /** 更新前後で変わった項目。承認した内容が反映されたかを画面で確かめるため。 */
+  changes?: { field: string; before: unknown; after: unknown }[]
+  /** 同じ承認が既に実行済みだった場合。二重実行はされていない。 */
+  alreadyExecuted?: boolean
+}
+
 export async function executeCommand(
   userId: string,
   command: string,
   args: Record<string, unknown>,
   traceId?: string,
-): Promise<void> {
+): Promise<ExecuteResult> {
   const res = await fetch('/api/commands/execute', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', [USER_HEADER]: userId },
     // traceId を送ることで、どの会話に対する承認だったかが監査に残る。
     body: JSON.stringify({ command, arguments: args, traceId }),
   })
-  const body = (await res.json()) as { error?: string }
+  const body = (await res.json()) as ExecuteResult & { error?: string }
   if (!res.ok) {
     throw new Error(body.error ?? `実行に失敗しました (${res.status})`)
   }
+  return body
 }
 
 export function fetchAuditExecutions(

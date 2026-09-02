@@ -4,6 +4,7 @@ import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
+import Collapse from '@mui/material/Collapse'
 import CircularProgress from '@mui/material/CircularProgress'
 import Divider from '@mui/material/Divider'
 import FormControlLabel from '@mui/material/FormControlLabel'
@@ -20,7 +21,7 @@ import EditNoteIcon from '@mui/icons-material/EditNote'
 import ErrorIcon from '@mui/icons-material/Error'
 import SendIcon from '@mui/icons-material/Send'
 import { executeCommand, streamAsk } from '../../shared/api/client'
-import type { Done, Navigation, Proposal, Step } from '../../shared/api/client'
+import type { Done, ExecuteResult, Navigation, Proposal, Step } from '../../shared/api/client'
 import { NAV } from '../../app/nav'
 import { PageHeader } from '../../shared/ui/PageHeader'
 import { useUser } from '../../shared/user/user-context'
@@ -361,15 +362,25 @@ function ProposalCard({
 }) {
   const { current } = useUser()
   const [running, setRunning] = useState(false)
-  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [result, setResult] = useState<{
+    ok: boolean
+    message: string
+    changes?: ExecuteResult['changes']
+  } | null>(null)
 
   const run = async () => {
     if (!current) return
     setRunning(true)
     setResult(null)
     try {
-      await executeCommand(current.userId, proposal.command, proposal.arguments, traceId)
-      setResult({ ok: true, message: '実行しました。' })
+      const r = await executeCommand(current.userId, proposal.command, proposal.arguments, traceId)
+      setResult({
+        ok: true,
+        // 二重送信は実行されず、済んでいることだけが返る。
+        // 「実行しました」と出すと 2 回実行されたように読める。
+        message: r.alreadyExecuted ? 'この操作は既に実行済みです。' : '実行しました。',
+        changes: r.changes,
+      })
     } catch (e) {
       setResult({ ok: false, message: e instanceof Error ? e.message : String(e) })
     } finally {
@@ -429,7 +440,45 @@ function ProposalCard({
       )}
 
       {result ? (
-        <Alert severity={result.ok ? 'success' : 'error'}>{result.message}</Alert>
+        <Alert severity={result.ok ? 'success' : 'error'}>
+          {result.message}
+          {/* 何がどう変わったかを出す。承認した内容がそのまま反映されたかを
+              画面で確かめられないと、承認した意味が薄い。 */}
+          {result.changes && result.changes.length > 0 && (
+            <Box
+              component="dl"
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'max-content minmax(0, 1fr)',
+                columnGap: 2,
+                rowGap: 0.5,
+                mt: 1,
+                mb: 0,
+              }}
+            >
+              {result.changes.map((c) => (
+                <Box key={c.field} sx={{ display: 'contents' }}>
+                  <Typography component="dt" variant="body2" color="text.secondary">
+                    {c.field}
+                  </Typography>
+                  <Typography
+                    component="dd"
+                    variant="body2"
+                    sx={{ m: 0, overflowWrap: 'anywhere' }}
+                  >
+                    <Box component="span" sx={{ color: 'text.secondary', textDecoration: 'line-through' }}>
+                      {String(c.before ?? '(なし)')}
+                    </Box>
+                    {' → '}
+                    <Box component="span" sx={{ fontWeight: 600 }}>
+                      {String(c.after ?? '(なし)')}
+                    </Box>
+                  </Typography>
+                </Box>
+              ))}
+            </Box>
+          )}
+        </Alert>
       ) : (
         <Stack direction="row" spacing={1}>
           <Button
@@ -524,8 +573,72 @@ function StepRow({ step }: { step: Step }) {
             {step.error}
           </Typography>
         )}
+        <StepResult step={step} />
       </Box>
     </Stack>
+  )
+}
+
+/**
+ * 実行した操作の結果。
+ *
+ * ここに出すのは **Projection を通した後のもの、つまり LLM が実際に見たもの**。
+ * 生のレスポンスではない。回答が正しいかを確かめるには、
+ * モデルが何を根拠にしたかが見えている必要がある
+ * (ダミーの値をそのまま答えに使う失敗を実測している)。
+ */
+function StepResult({ step }: { step: Step }) {
+  const [open, setOpen] = useState(false)
+  if (step.result === undefined || step.result === null) return null
+
+  const r = step.result as Record<string, unknown>
+  const items = Array.isArray(r.items) ? (r.items as unknown[]) : null
+  const count = typeof r.count === 'number' ? r.count : null
+
+  // 件数の言い方を「取得できた分」と「全体」で分ける。
+  // 20 件しか見ていないのに「10,787 件を見た」と読めると、
+  // 回答の裏取りにならない。
+  let summary: string
+  if (items) {
+    summary =
+      count !== null && count > items.length
+        ? `${count.toLocaleString()} 件中 ${items.length} 件を取得`
+        : `${items.length} 件`
+  } else {
+    summary = '1 件'
+  }
+
+  return (
+    <Box sx={{ mt: 0.5 }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+        <Typography variant="caption" color="text.secondary">
+          {step.status ? `${step.status} · ` : ''}
+          {summary}
+          {step.llmMs ? ` · 判断 ${(step.llmMs / 1000).toFixed(1)} 秒` : ''}
+        </Typography>
+        <Button size="small" sx={{ minWidth: 0, p: 0 }} onClick={() => setOpen((v) => !v)}>
+          {open ? '閉じる' : 'LLM が見たデータ'}
+        </Button>
+      </Stack>
+      <Collapse in={open} unmountOnExit>
+        <Box
+          component="pre"
+          sx={{
+            mt: 0.5,
+            p: 1,
+            m: 0,
+            fontSize: 12,
+            bgcolor: 'action.hover',
+            borderRadius: 1,
+            // 長い JSON で画面全体が横に伸びないよう、この中だけを流す。
+            maxHeight: 240,
+            overflow: 'auto',
+          }}
+        >
+          {JSON.stringify(step.result, null, 2)}
+        </Box>
+      </Collapse>
+    </Box>
   )
 }
 

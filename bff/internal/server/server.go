@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -518,7 +519,46 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 		TraceID: req.TraceID, Identity: id, Command: cmd.Name,
 		Arguments: args, StatusCode: http.StatusOK, Before: before, Result: after,
 	})
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "command": cmd.Name})
+	// 何がどう変わったかを返す。「実行しました」だけでは、
+	// 承認した内容がそのまま反映されたのかを画面で確かめられない。
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "command": cmd.Name, "changes": changedFields(before, after),
+	})
+}
+
+// changedFields は更新前後で値が変わった項目を返す。
+//
+// 更新のたびに動く管理項目 (version / updated_at など) は除く。
+// 混ぜると「何を変えたか」が埋もれる。
+func changedFields(before, after any) []map[string]any {
+	b, ok1 := before.(map[string]any)
+	a, ok2 := after.(map[string]any)
+	if !ok1 || !ok2 {
+		return nil
+	}
+	noise := map[string]bool{
+		"version": true, "updated_at": true, "updated_by": true, "_etag": true,
+	}
+	out := []map[string]any{}
+	for _, k := range sortedKeys(a) {
+		if noise[k] {
+			continue
+		}
+		if fmt.Sprint(b[k]) == fmt.Sprint(a[k]) {
+			continue
+		}
+		out = append(out, map[string]any{"field": k, "before": b[k], "after": a[k]})
+	}
+	return out
+}
+
+func sortedKeys(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ---- 画面向けの読み取り API ----
