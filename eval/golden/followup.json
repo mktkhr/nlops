@@ -1,0 +1,140 @@
+{
+  "note": "連続した問い合わせ。2 問目以降は指示語や省略を含み、前の往復を見ないと解けない。各ターンで必要な Tool へ到達できたか、前のターンで出た ID を使えたかを見る。",
+  "cases": [
+    {
+      "id": "F01",
+      "user_id": "u_admin",
+      "turns": [
+        {
+          "query": "田中太郎さんの注文を教えて",
+          "expect_any": [
+            "order.search",
+            "customer.search"
+          ],
+          "allow_navigate": true
+        },
+        {
+          "query": "その中で一番古いものは？",
+          "expect_any": [
+            "order.search"
+          ],
+          "expect_args": {
+            "sort": "ordered_at_asc"
+          }
+        },
+        {
+          "query": "それはもう出荷されていますか",
+          "expect_any": [
+            "shipping.getStatus",
+            "shipping.search"
+          ],
+          "expect_prev_id": true
+        }
+      ]
+    },
+    {
+      "id": "F02",
+      "user_id": "u_admin",
+      "turns": [
+        {
+          "query": "高橋みどりさんを探して",
+          "expect_any": [
+            "customer.search"
+          ],
+          "allow_navigate": true
+        },
+        {
+          "query": "その人の未払いの請求は？",
+          "expect_any": [
+            "billing.searchInvoices",
+            "billing.listUnpaid",
+            "billing.getOutstandingBalance"
+          ],
+          "expect_prev_id": true
+        }
+      ]
+    },
+    {
+      "id": "F03",
+      "user_id": "u_admin",
+      "turns": [
+        {
+          "query": "未発送の注文は何件ありますか",
+          "expect_any": [
+            "order.countByStatus",
+            "order.search"
+          ]
+        },
+        {
+          "query": "その中で一番高額なものを教えて",
+          "expect_any": [
+            "order.search"
+          ],
+          "expect_args": {
+            "sort": "total_amount_desc"
+          }
+        }
+      ]
+    },
+    {
+      "id": "F04",
+      "user_id": "u_admin",
+      "turns": [
+        {
+          "query": "在庫が少ない商品を見せて",
+          "expect_any": [
+            "inventory.listLowStock"
+          ],
+          "allow_navigate": true
+        },
+        {
+          "query": "一番少ないものの商品名は？",
+          "expect_any": [
+            "inventory.listLowStock",
+            "inventory.getProduct",
+            "inventory.searchProducts"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F05",
+      "user_id": "u_sales_e",
+      "turns": [
+        {
+          "query": "自分の担当地域の顧客を見せて",
+          "expect_any": [
+            "customer.search"
+          ],
+          "allow_navigate": true
+        },
+        {
+          "query": "その中に未払いの人はいますか",
+          "expect_any": [
+            "billing.listUnpaid",
+            "billing.searchInvoices",
+            "billing.getOutstandingBalance"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F06",
+      "user_id": "u_admin",
+      "turns": [
+        {
+          "query": "注文 O-1002 の状況を教えて",
+          "expect_any": [
+            "order.get",
+            "order.search"
+          ]
+        },
+        {
+          "query": "キャンセルして",
+          "expect_propose": "order.cancel",
+          "expect_prev_id": true
+        }
+      ]
+    }
+  ]
+}

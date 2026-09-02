@@ -56,6 +56,16 @@ type Options struct {
 	// OnStep は 1 ステップ完了ごとに呼ばれる。BFF が進捗をストリームするために使う。
 	OnStep func(Step)
 
+	// History は同じ会話の過去のやり取り。古いものから順に並べる。
+	//
+	// **Tool の結果は入れない。質問と最終回答だけを入れる。**
+	// 途中の結果まで積むと、3 往復で context が数万トークンになり、
+	// この PoC が拠り所にしている prefix cache の利点を失う。
+	//
+	// system prompt の後ろへ append するだけなので、
+	// 会話が伸びても prefix は壊れない (`--cache-reuse` が効き続ける)。
+	History []Turn
+
 	// Thinking が true のとき、モデルの思考を有効にする。
 	//
 	// **要求ごとに切り替える**必要があるので、llm.Client の DisableThinking では
@@ -72,6 +82,12 @@ type Options struct {
 	// 選定精度が高いと誤選択が自然発生しないので、回復挙動だけを切り離して
 	// 観測できない。**検証専用であり、通常運用では使わない。**
 	ForceFirst *executor.Call
+}
+
+// Turn は 1 往復。連続した問い合わせで前の文脈を渡すために使う。
+type Turn struct {
+	Query  string `json:"query"`
+	Answer string `json:"answer"`
 }
 
 // Navigation は LLM が生成した画面の状態。
@@ -192,7 +208,9 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 	start := time.Now()
 	tr := &Trace{Query: query, UserID: id.UserID, Role: string(id.Role),
 		Mode: string(opt.Mode), Model: opt.Model}
-	r.Executor.Reset(query)
+	// 前のやり取りに出た ID も「利用者が知っている値」として扱う。
+	// そうしないと「その注文の出荷は？」で未解決 ID の差し戻しに当たる。
+	r.Executor.Reset(historyText(opt.History) + query)
 
 	// モード判定。navigate 側と決まったら Tool の選択肢を渡さない。
 	routes := r.Routes
@@ -244,16 +262,25 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 	}
 
 	// 履歴は append のみ。prefix を壊さないため書き換えない。
-	msgs := []llm.Message{
-		{Role: "system", Content: prompt.LoopSystem(tools, routes)},
-		{Role: "user", Content: query},
-	}
+	system := prompt.LoopSystem(tools, routes)
 	switch {
 	case navigateOnly:
-		msgs[0].Content = prompt.NavigateOnlySystem(routes)
+		system = prompt.NavigateOnlySystem(routes)
 	case writeMode:
-		msgs[0].Content = prompt.WriteSystem(tools, r.Commands)
+		system = prompt.WriteSystem(tools, r.Commands)
 	}
+	// system → 過去のやり取り → 今回の質問。この順なら会話が伸びても
+	// 前半は変わらないので、prefix cache が効き続ける。
+	msgs := make([]llm.Message, 0, 2+2*len(opt.History))
+	msgs = append(msgs, llm.Message{Role: "system", Content: system})
+	for _, t := range opt.History {
+		msgs = append(msgs,
+			llm.Message{Role: "user", Content: t.Query},
+			llm.Message{Role: "assistant", Content: t.Answer})
+	}
+	msgs = append(msgs, llm.Message{Role: "user", Content: query})
+	// 履歴の分だけ、Loop 中に書き換えてはいけない先頭が伸びる。
+	head := len(msgs)
 	// executed は Tool 実行が 1 回でも成立したか。成立するまで finish を許さない。
 	executed := false
 	// barren は「収穫のない結果」が連続した回数。
@@ -459,7 +486,7 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 
 answer:
 	if opt.Answer && tr.Err == "" && !navigated {
-		ans, resp, err := r.finalAnswer(ctx, msgs, query, opt)
+		ans, resp, err := r.finalAnswer(ctx, msgs, head, query, opt)
 		if resp != nil {
 			tr.AnswerMS = ms(resp.Wall)
 			tr.PromptTok += resp.Usage.PromptTokens
@@ -511,12 +538,25 @@ func (r *Runner) routeServices(ctx context.Context, query string, opt Options) (
 
 // finalAnswer は集めた Tool 結果から自然言語の回答を作る。
 // 制御判断と違い、ここはスキーマ制約をかけない。
-func (r *Runner) finalAnswer(ctx context.Context, history []llm.Message, query string, opt Options) (string, *llm.Response, error) {
+//
+// head は Loop の履歴のうち「Tool 結果より前」の長さ。
+// system prompt と過去のやり取りと今回の質問がそこに入っており、
+// 長さは会話の往復数で変わる。決め打ちで読み飛ばすと、
+// **前のやり取りを Tool 結果として渡してしまう**。
+func (r *Runner) finalAnswer(ctx context.Context, history []llm.Message, head int,
+	query string, opt Options) (string, *llm.Response, error) {
+
 	msgs := make([]llm.Message, 0, len(history)+2)
 	msgs = append(msgs, llm.Message{Role: "system", Content: prompt.AnswerSystem()})
-	// system と最初の user はそのまま流用せず、Tool 結果だけを引き継ぐ。
+	// Loop の system prompt は流用しない。過去のやり取りは、
+	// 「その注文の…」のような指示語を解けるようにするため引き継ぐ。
+	for _, t := range opt.History {
+		msgs = append(msgs,
+			llm.Message{Role: "user", Content: t.Query},
+			llm.Message{Role: "assistant", Content: t.Answer})
+	}
 	msgs = append(msgs, llm.Message{Role: "user", Content: query})
-	for _, m := range history[2:] {
+	for _, m := range history[head:] {
 		msgs = append(msgs, m)
 	}
 	msgs = append(msgs, llm.Message{Role: "user", Content: "以上の Tool 結果を根拠に、最初の要求へ答えてください。"})
@@ -587,6 +627,19 @@ func recordFilters(tr *Trace, args map[string]any) {
 	}
 }
 
+// historyText は過去のやり取りを 1 つの文字列にする。
+// Executor が「利用者の入力に現れた語」を拾うために使う。
+func historyText(hist []Turn) string {
+	var b strings.Builder
+	for _, t := range hist {
+		b.WriteString(t.Query)
+		b.WriteByte('\n')
+		b.WriteString(t.Answer)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
 func barrenResult(res executor.Result) bool {
 	if res.Error != "" || res.Denied || (res.Status != 0 && res.Status != 200) {
 		return true
@@ -608,12 +661,20 @@ func barrenResult(res executor.Result) bool {
 func (r *Runner) classifyIntent(ctx context.Context, query string, opt Options) (string, *llm.Response, error) {
 	// **Intent Gate には思考を入れない。** 出力は 1 文字 (n/t/w) で
 	// max_tokens 16 しかないため、思考を有効にすると必ず枠を使い切って空になる。
+	msgs := []llm.Message{{Role: "system", Content: prompt.IntentSystem(r.Routes, r.Commands)}}
+	// 直前の 1 往復だけ渡す。「その注文の出荷は？」のような指示語は、
+	// 前を見ないと画面遷移か Tool かの判断がつかない。
+	// 全部渡さないのは、1 文字を返すだけの判定にしては重くなるため。
+	if n := len(opt.History); n > 0 {
+		last := opt.History[n-1]
+		msgs = append(msgs,
+			llm.Message{Role: "user", Content: last.Query},
+			llm.Message{Role: "assistant", Content: last.Answer})
+	}
+	msgs = append(msgs, llm.Message{Role: "user", Content: query})
+
 	resp, err := r.LLM.Chat(ctx, llm.Request{
-		Model: opt.Model, Temperature: 0, MaxTokens: 16,
-		Messages: []llm.Message{
-			{Role: "system", Content: prompt.IntentSystem(r.Routes, r.Commands)},
-			{Role: "user", Content: query},
-		},
+		Model: opt.Model, Temperature: 0, MaxTokens: 16, Messages: msgs,
 		ResponseFormat: &llm.ResponseFormat{Type: "json_schema", JSONSchema: prompt.IntentSchema()},
 	})
 	if err != nil {

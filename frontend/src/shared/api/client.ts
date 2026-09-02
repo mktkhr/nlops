@@ -19,6 +19,9 @@ export type ScreenSummary = {
   }[]
 }
 
+/** 1 往復。連続した問い合わせで前の文脈を渡すために送る。 */
+export type Turn = { query: string; answer: string }
+
 export type Navigation = {
   route: string
   filters?: Record<string, string>
@@ -235,11 +238,13 @@ export async function streamAsk(
   handlers: AskHandlers,
   signal?: AbortSignal,
   thinking = false,
+  history: Turn[] = [],
 ): Promise<void> {
   const res = await fetch('/api/ask', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', [USER_HEADER]: userId },
-    body: JSON.stringify({ query, thinking }),
+    // 会話の状態はサーバに持たせない。画面が持って毎回送る。
+    body: JSON.stringify({ query, thinking, history }),
     signal,
   })
   if (!res.ok || !res.body) {

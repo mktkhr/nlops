@@ -65,6 +65,8 @@ eval/             評価ハーネス
   cmd/spike/        初手 Tool 選定だけを測る (サービス起動不要)
   cmd/evalrun/      Tool Loop 全体を測る (サービス起動が必要)
   cmd/mkcatalog/    スケール検証用カタログの生成
+  golden/followup.json 連続した問い合わせ (追い質問) のケース
+  cmd/followup/     追い質問を測る。-no-history で履歴あり/なしを A/B
   golden/recovery.json 誤 Tool を踏ませたときの回復を測るケース (16 件)
   cmd/decoystub/    ダミーサービスの応答スタブ (down / error / plausible)
   cmd/recovery/     誤 Tool からの回復・汚染を測る

@@ -107,6 +107,10 @@ export function AssistantPage() {
   const [query, setQuery] = useState('')
   // 送った質問。入力欄は送信で空にするので、表示用に別に持つ。
   const [asked, setAsked] = useState('')
+  // 済んだ往復。**サーバは会話の状態を持たないので、これを毎回送る。**
+  // 途中の Tool 結果は送らない (質問と回答だけ)。積むと context が膨らみ、
+  // この基盤が拠り所にしている prefix cache の利点を失う。
+  const [turns, setTurns] = useState<{ query: string; answer: string }[]>([])
   const [steps, setSteps] = useState<Step[]>([])
   const [answer, setAnswer] = useState('')
   const [done, setDone] = useState<Done | null>(null)
@@ -127,7 +131,7 @@ export function AssistantPage() {
   const abortRef = useRef<AbortController | null>(null)
 
   // 何も始まっていない状態か。入力欄を中央に置くかどうかの判断に使う。
-  const empty = !asked
+  const empty = !asked && turns.length === 0
 
   // 経過秒。数十秒かかることがあるので、動いていることが分かるようにする。
   useEffect(() => {
@@ -150,6 +154,10 @@ export function AssistantPage() {
       // イベントのコールバックが後から走ることがある。
       const isLatest = () => abortRef.current === controller
 
+      // 直前の往復を履歴へ送る。回答が無いまま次を送った場合 (中断など) は
+      // 積まない。空の回答を文脈として渡しても役に立たない。
+      const history = asked && answer ? [...turns, { query: asked, answer }] : turns
+      setTurns(history)
       setAsked(q)
       setQuery('')
       setSteps([])
@@ -182,6 +190,7 @@ export function AssistantPage() {
           },
           controller.signal,
           thinking,
+          history,
         )
       } catch (e) {
         if (!controller.signal.aborted) {
@@ -194,7 +203,7 @@ export function AssistantPage() {
         }
       }
     },
-    [current, thinking],
+    [current, thinking, asked, answer, turns],
   )
 
   // 最初の状態へ戻す。ask の頭でやっているリセットと同じものを、
@@ -203,6 +212,7 @@ export function AssistantPage() {
     abortRef.current?.abort()
     abortRef.current = null
     setAsked('')
+    setTurns([])
     setQuery('')
     setSteps([])
     setAnswer('')
@@ -224,6 +234,7 @@ export function AssistantPage() {
       running={running}
       thinking={thinking}
       setThinking={setThinking}
+      showExamples={empty}
     />
   )
 
@@ -275,24 +286,20 @@ export function AssistantPage() {
         </Alert>
       )}
 
+      {/* 済んだ往復は質問と回答だけを残す。実行の詳細まで積むと、
+          今どの質問の結果を見ているのかが分からなくなる。 */}
+      {turns.map((t, i) => (
+        <Box key={i} sx={{ mb: 2 }}>
+          <QuestionBubble text={t.query} />
+          <Box sx={{ mt: 1 }}>
+            <AnswerText text={t.answer} />
+          </Box>
+        </Box>
+      ))}
+
       {/* 何を聞いたかを最初に出す。入力欄は送信で空になるので、
           ここに残っていないと「何に対する答えか」が分からなくなる。 */}
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-        <Paper
-          elevation={0}
-          sx={{
-            px: 2,
-            py: 1.25,
-            maxWidth: '85%',
-            bgcolor: 'action.selected',
-            borderRadius: 3,
-          }}
-        >
-          <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-            {asked}
-          </Typography>
-        </Paper>
-      </Box>
+      {asked && <QuestionBubble text={asked} />}
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -367,13 +374,16 @@ export function AssistantPage() {
       {done && <Metrics done={done} />}
 
       {/* 実行中は入力欄を出さない。押しても何も起きない欄を残すのは、
-          実装の都合 (1 問ずつしか処理できない) を利用者に見せているだけ。
-          終わったら「新しい質問」で最初の状態へ戻す。 */}
+          「今は受け付けない」ことを利用者に判断させることになる。
+          終わったら続けて聞けるように出す。 */}
       {!running && (
-        <Box sx={{ mt: 3, display: 'flex', justifyContent: 'center' }}>
-          <Button variant="outlined" startIcon={<AddIcon />} onClick={reset}>
-            新しい質問
-          </Button>
+        <Box sx={{ mt: 3 }}>
+          {form}
+          <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
+            <Button size="small" startIcon={<AddIcon />} onClick={reset}>
+              新しい会話を始める
+            </Button>
+          </Box>
         </Box>
       )}
     </Box>
@@ -655,6 +665,7 @@ function PromptForm({
   running,
   thinking,
   setThinking,
+  showExamples,
 }: {
   query: string
   setQuery: (v: string) => void
@@ -662,6 +673,7 @@ function PromptForm({
   running: boolean
   thinking: boolean
   setThinking: (v: boolean) => void
+  showExamples: boolean
 }) {
   const { current, loading: userLoading } = useUser()
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -739,7 +751,10 @@ function PromptForm({
           }
         />
       </Tooltip>
-      <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap', gap: 1 }}>
+      {/* 例は最初だけ。会話が始まった後は、済んだやり取りの下に
+          関係のない候補が並ぶことになる。 */}
+      {showExamples && (
+        <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap', gap: 1 }}>
           {EXAMPLES.map((ex) => (
             <Chip
               key={ex}
@@ -750,9 +765,24 @@ function PromptForm({
               onClick={() => ask(ex)}
               disabled={disabled}
             />
-        ))}
-      </Stack>
+          ))}
+        </Stack>
+      )}
     </Paper>
+  )
+}
+
+/** 利用者が送った質問。右寄せの吹き出しにして、回答と見分けられるようにする。 */
+function QuestionBubble({ text }: { text: string }) {
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+      <Paper
+        elevation={0}
+        sx={{ px: 2, py: 1.25, maxWidth: '85%', bgcolor: 'action.selected', borderRadius: 3 }}
+      >
+        <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{text}</Typography>
+      </Paper>
+    </Box>
   )
 }
 

@@ -14,7 +14,7 @@ export NLOPS_DSN = $(DSN)
 
 PSQL = docker exec -i -e PGPASSWORD=$(PG_PASSWORD) $(PG_CONTAINER) psql -U $(PG_USER) -d $(PG_DB) -v ON_ERROR_STOP=1 -q
 
-.PHONY: build db db-bulk services stop bff web recovery test fmt secrets cert up down reset logs ps
+.PHONY: build db db-bulk services stop bff web recovery followup test fmt secrets cert up down reset logs ps
 build:
 	cd pkg && go build ./...
 	cd services && go build -o ../bin/ ./cmd/...
@@ -61,6 +61,10 @@ recovery: build
 	@./bin/recovery -mode $(MODE) || true
 	@P=$$(ss -lptn 'sport = :9199' 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2); \
 		[ -n "$$P" ] && kill $$P || true
+
+# 連続した問い合わせ (追い質問) を測る。HIST=0 で履歴なしと比較できる。
+followup: build
+	@./bin/followup $(if $(filter 0,$(HIST)),-no-history,)
 
 test:
 	@for m in pkg services orchestrator eval bff; do (cd $$m && go test ./...); done

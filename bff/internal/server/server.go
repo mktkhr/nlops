@@ -124,6 +124,12 @@ func (s *Server) identity(r *http.Request) (authctx.Identity, error) {
 type askRequest struct {
 	Query string `json:"query"`
 
+	// History は同じ会話の過去のやり取り (古い順)。
+	// 会話の状態はサーバに持たない。**画面が持って毎回送る。**
+	// 状態を持つと、どの会話がいつ消えるかという別の設計判断が要るうえ、
+	// 「利用者が見ている履歴」と「サーバが持つ履歴」がずれうる。
+	History []loop.Turn `json:"history"`
+
 	// Thinking は要求ごとにモデルの思考を有効にする。
 	// 既定は false。有効にすると遅くなり、制約デコードの JSON が
 	// 出てこない失敗が増える (docs/decisions.md)。画面から切り替えて
@@ -184,8 +190,8 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	tr := s.Runner.Run(r.Context(), id, req.Query, loop.Options{
 		Model: s.Model, Mode: s.Mode, StrictArgs: true,
 		MaxSteps: s.MaxSteps, MaxTokens: maxTok, Answer: true, StopGuard: true, IntentGate: true,
-		Thinking: req.Thinking,
-		OnStep:   func(st loop.Step) { send("step", toStepDTO(st)) },
+		Thinking: req.Thinking, History: req.History,
+		OnStep: func(st loop.Step) { send("step", toStepDTO(st)) },
 	})
 
 	if tr.Err != "" {
