@@ -24,7 +24,6 @@ import { executeCommand, streamAsk } from '../../shared/api/client'
 import type { Done, ExecuteResult, Navigation, Proposal, Step } from '../../shared/api/client'
 import { NAV } from '../../app/nav'
 import { AnswerText } from '../../shared/ui/AnswerText'
-import { PageHeader } from '../../shared/ui/PageHeader'
 import { useUser } from '../../shared/user/user-context'
 
 const EXAMPLES = [
@@ -105,6 +104,8 @@ export function AssistantPage() {
   const { current, error: userError } = useUser()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
+  // 送った質問。入力欄は送信で空にするので、表示用に別に持つ。
+  const [asked, setAsked] = useState('')
   const [steps, setSteps] = useState<Step[]>([])
   const [answer, setAnswer] = useState('')
   const [done, setDone] = useState<Done | null>(null)
@@ -125,8 +126,7 @@ export function AssistantPage() {
   const abortRef = useRef<AbortController | null>(null)
 
   // 何も始まっていない状態か。入力欄を中央に置くかどうかの判断に使う。
-  const empty =
-    steps.length === 0 && !answer && !navigation && !proposal && !error && !running
+  const empty = !asked
 
   // 経過秒。数十秒かかることがあるので、動いていることが分かるようにする。
   useEffect(() => {
@@ -149,6 +149,8 @@ export function AssistantPage() {
       // イベントのコールバックが後から走ることがある。
       const isLatest = () => abortRef.current === controller
 
+      setAsked(q)
+      setQuery('')
       setSteps([])
       setAnswer('')
       setDone(null)
@@ -247,19 +249,31 @@ export function AssistantPage() {
   }
 
   return (
-    <Box>
-      <PageHeader
-        title="アシスタント"
-        description="自然言語で問い合わせると、必要な業務 API を選んで実行し、結果をまとめて答えます。参照できる範囲はヘッダーで選んだ実行ユーザーの権限に従います。"
-      />
-
+    <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', maxWidth: 860, width: '100%', mx: 'auto' }}>
       {userError && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {userError}
         </Alert>
       )}
 
-      {form}
+      {/* 何を聞いたかを最初に出す。入力欄は送信で空になるので、
+          ここに残っていないと「何に対する答えか」が分からなくなる。 */}
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+        <Paper
+          elevation={0}
+          sx={{
+            px: 2,
+            py: 1.25,
+            maxWidth: '85%',
+            bgcolor: 'action.selected',
+            borderRadius: 3,
+          }}
+        >
+          <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+            {asked}
+          </Typography>
+        </Paper>
+      </Box>
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -332,6 +346,26 @@ export function AssistantPage() {
 
       {done && <AppliedFilters filters={done.filters} />}
       {done && <Metrics done={done} />}
+
+      {/* 入力欄は最下部へ。結果を読み終えたところに次の入力がある形にする。
+          sticky なので、結果が長くても画面から出ていかない。 */}
+      <Box
+        sx={{
+          mt: 'auto',
+          position: 'sticky',
+          bottom: 0,
+          pt: 1,
+          // 結果が下に透けると読みにくいので背景を敷く。
+          bgcolor: 'background.default',
+        }}
+      >
+        {form}
+        {/* この基盤は 1 問ずつ独立して答える。見た目がチャットに近いと
+            追い質問が通ると思われるので、そうでないことを書いておく。 */}
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, pb: 0.5 }}>
+          1 問ずつ独立して処理します（前のやり取りは引き継ぎません）
+        </Typography>
+      </Box>
     </Box>
   )
 }
@@ -635,12 +669,14 @@ function PromptForm({
   }, [centered, disabled])
 
   return (
-      <Paper variant="outlined" sx={{ p: 2, mb: centered ? 0 : 2 }}>
-      {/* 狭い画面では横に並べると入力欄が数文字分しか残らない。縦に積む。 */}
+      <Paper variant="outlined" sx={{ p: centered ? 2 : 1.25, mb: 0 }}>
+      {/* 初期状態は縦に積む。狭い画面で横に並べると入力欄が数文字分しか残らない。
+          会話中の下部バーでは逆に横並びにする。縦積みだと 375px で
+          バーが画面の 28% を占め、結果の見える範囲がその分減る。 */}
       <Stack
-        direction={{ xs: 'column', sm: 'row' }}
+        direction={centered ? { xs: 'column', sm: 'row' } : 'row'}
         spacing={1}
-        sx={{ alignItems: { sm: 'flex-start' } }}
+        sx={{ alignItems: centered ? { sm: 'flex-start' } : 'flex-start' }}
       >
         <TextField
           fullWidth
@@ -665,19 +701,29 @@ function PromptForm({
           // 実行ユーザーが決まっていないと権限を伴う問い合わせができない。
           // 押しても無反応になるより、押せないことを見せる。
           disabled={running || !query.trim() || !current || userLoading}
-          sx={{ minWidth: 104, height: 40, alignSelf: { xs: 'flex-end', sm: 'auto' } }}
+          sx={{
+            minWidth: centered ? 104 : 44,
+            height: 40,
+            px: centered ? undefined : 0,
+            flexShrink: 0,
+            alignSelf: centered ? { xs: 'flex-end', sm: 'auto' } : 'auto',
+            // 会話中はアイコンだけにして幅を返す。
+            '& .MuiButton-startIcon': centered ? undefined : { m: 0 },
+          }}
         >
-          送信
+          {centered ? '送信' : ''}
         </Button>
       </Stack>
       {/* Tooltip は触れる端末では開かない。要点はラベルに出し、
-          詳しい数字だけを Tooltip に残す。 */}
+          詳しい数字だけを Tooltip に残す。
+          会話中はラベルを短くする。下部に貼り付く枠なので、
+          縦を取るほど結果の見える範囲が減る (375px で実測 223px を占めていた)。 */}
       <Tooltip
         title="モデルに考えさせてから答えさせます。実測では精度が 98% → 78% に落ち、5 倍以上遅くなります (失敗の大半は応答が空になる形)。違いを見るための切り替えです。"
         placement="top-start"
       >
         <FormControlLabel
-          sx={{ mt: 1, mr: 0, alignItems: 'center' }}
+          sx={{ mt: centered ? 1 : 0.5, mr: 0, alignItems: 'center' }}
           control={
             <Switch
               size="small"
@@ -688,26 +734,27 @@ function PromptForm({
           }
           label={
             <Typography variant="body2" color="text.secondary">
-              モデルに思考させる（遅くなり、精度は落ちます）
+              {centered ? 'モデルに思考させる（遅くなり、精度は落ちます）' : '思考させる'}
             </Typography>
           }
         />
       </Tooltip>
-      <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap', gap: 1 }}>
-        {EXAMPLES.map((ex) => (
-          <Chip
-            key={ex}
-            label={ex}
-            size="small"
-            variant="outlined"
-            onClick={() => {
-              setQuery(ex)
-              ask(ex)
-            }}
-            disabled={running || !current}
-          />
-        ))}
-      </Stack>
+      {/* 例は最初だけ。会話が始まった後は結果の邪魔になる。 */}
+      {centered && (
+        <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap', gap: 1 }}>
+          {EXAMPLES.map((ex) => (
+            <Chip
+              key={ex}
+              label={ex}
+              size="small"
+              variant="outlined"
+              // 押したら送るだけ。入力欄には残さない (送信で空にする方針に揃える)。
+              onClick={() => ask(ex)}
+              disabled={disabled}
+            />
+          ))}
+        </Stack>
+      )}
     </Paper>
   )
 }
