@@ -34,6 +34,18 @@ func (w *W) Like(col, v string) *W {
 	return w
 }
 
+// Lt は未満条件を足す。
+// 「5 個を下回る」を「5 以下」で代用すると 1 件ずれる。
+// 境界の意味が違うものを同じ引数で兼ねない。
+func (w *W) Lt(col string, v any) *W {
+	if s, ok := v.(string); ok && s == "" {
+		return w
+	}
+	w.args = append(w.args, v)
+	w.conds = append(w.conds, fmt.Sprintf("%s < $%d", col, len(w.args)))
+	return w
+}
+
 // Gte は以上条件を足す。
 func (w *W) Gte(col string, v any) *W {
 	if s, ok := v.(string); ok && s == "" {

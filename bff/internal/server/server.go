@@ -81,6 +81,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/ask", s.handleAsk)
 	s.mux.HandleFunc("GET /api/orders", s.handleOrders)
 	s.mux.HandleFunc("GET /api/customers", s.handleCustomers)
+	s.mux.HandleFunc("GET /api/stock", s.handleStock)
 	s.mux.HandleFunc("POST /api/commands/execute", s.handleExecute)
 	s.mux.HandleFunc("GET /api/audit/traces", s.handleAuditTraces)
 	s.mux.HandleFunc("GET /api/audit/traces/{trace_id}", s.handleAuditTrace)
@@ -719,6 +720,51 @@ func (s *Server) customerNames(ctx context.Context, id authctx.Identity,
 	return names
 }
 
+// handleStock は在庫一覧。
+//
+// 一覧の要求を画面で受けるために足した。それまで在庫の画面が無く、
+// 「在庫が5個を下回っている商品を出して」が Tool 経路へ落ちて、
+// モデルが 20 行を散文で書いていた (実測 11.9 秒、うち回答生成 7.8 秒)。
+func (s *Server) handleStock(w http.ResponseWriter, r *http.Request) {
+	id, err := s.identity(r)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	q := url.Values{}
+	// at_most は「以下」。サービス側の threshold と同じ意味なので読み替える。
+	if v := r.URL.Query().Get("at_most"); v != "" {
+		q.Set("threshold", v)
+	}
+	for _, k := range []string{"below", "threshold", "warehouse_id", "product_name"} {
+		if v := r.URL.Query().Get(k); v != "" {
+			q.Set(k, v)
+		}
+	}
+	pageParams(r, q)
+	p, code, err := s.fetchPage(r.Context(), id, "inventory", "/stock/low", q)
+	if err != nil {
+		writeErr(w, code, err.Error())
+		return
+	}
+	type dto struct {
+		ProductID   string `json:"productId"`
+		ProductName string `json:"productName"`
+		WarehouseID string `json:"warehouseId"`
+		Quantity    int64  `json:"quantity"`
+	}
+	items := make([]dto, 0, len(p.Items))
+	for _, x := range p.Items {
+		items = append(items, dto{
+			ProductID: str(x["product_id"]), ProductName: str(x["product_name"]),
+			WarehouseID: str(x["warehouse_id"]), Quantity: num(x["quantity"]),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": items, "count": p.Count, "hasMore": p.HasMore,
+		"offset": p.Offset, "limit": p.Limit})
+}
+
 func (s *Server) handleCustomers(w http.ResponseWriter, r *http.Request) {
 	id, err := s.identity(r)
 	if err != nil {
@@ -900,6 +946,21 @@ func (s *Server) screenSummary(ctx context.Context, id authctx.Identity,
 				"title":    nameOr(names[cid], cid),
 				"detail":   str(o["ordered_at"]) + " / " + str(o["status"]),
 				"trailing": num(o["total_amount"]),
+			})
+		}
+		return map[string]any{"count": p.Count, "rows": rows, "unit": "件"}, false
+	case "/stock":
+		p, code, err := s.fetchPage(ctx, id, "inventory", "/stock/low", q)
+		if err != nil {
+			return nil, code == http.StatusForbidden
+		}
+		rows := make([]map[string]any, 0, len(p.Items))
+		for _, x := range p.Items {
+			rows = append(rows, map[string]any{
+				"key":      str(x["product_id"]),
+				"title":    str(x["product_name"]),
+				"detail":   str(x["warehouse_id"]),
+				"trailing": num(x["quantity"]),
 			})
 		}
 		return map[string]any{"count": p.Count, "rows": rows, "unit": "件"}, false

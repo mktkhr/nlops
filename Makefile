@@ -36,16 +36,31 @@ db-bulk: db
 db-inject:
 	$(PSQL) < services/schema/bulk/020_injection_seed.sql
 
+# 起動できたかを必ず確かめる。
+# 落ちたまま気付かずに評価を回すと、Loop が「Tool が失敗したので別の Tool を試す」
+# 挙動に入り、**モデルの問題に見える失敗が大量に出る** (実測: 180 件中 11 件)。
+# 測定の前提が壊れていることは、その場で分かる必要がある。
 services: build
 	@mkdir -p .run
 	@for s in customer order inventory shipping billing; do \
 		./bin/$$s > .run/$$s.log 2>&1 & echo $$! > .run/$$s.pid; done
-	@sleep 1; echo "起動: 9101-9105"
+	@sleep 2
+	@ng=""; for p in 9101 9102 9103 9104 9105; do \
+		ss -ltn "sport = :$$p" 2>/dev/null | grep -q LISTEN || ng="$$ng $$p"; done; \
+	if [ -n "$$ng" ]; then \
+		echo "起動に失敗したポート:$$ng"; \
+		for s in customer order inventory shipping billing; do \
+			[ -s .run/$$s.log ] && echo "  $$s: $$(head -1 .run/$$s.log)"; done; \
+		exit 1; \
+	fi; echo "起動: 9101-9105"
 
 bff: build
 	@mkdir -p .run
 	@NLOPS_DSN="$(DSN)" ./bin/bff > .run/bff.log 2>&1 & echo $$! > .run/bff.pid
-	@sleep 1; echo "BFF 起動: :8080"
+	@sleep 2
+	@ss -ltn 'sport = :8080' 2>/dev/null | grep -q LISTEN || \
+		{ echo "BFF の起動に失敗: $$(head -1 .run/bff.log)"; exit 1; }
+	@echo "BFF 起動: :8080"
 
 web:
 	@cd frontend && pnpm dev

@@ -79,10 +79,16 @@ func main() {
 	})
 
 	s.Handle("GET /stock/low", func(ctx context.Context, _ authctx.Identity, r *http.Request) (any, error) {
-		threshold := svc.QInt(r, "threshold", 10)
 		w := &svc.W{}
-		w.Lte("s.quantity", threshold)
+		// below (未満) と threshold (以下) は境界が違う。
+		// 「5 個を下回る」を「5 以下」で代用すると 1 件ずれるので兼ねない。
+		if v := svc.Q(r, "below"); v != "" {
+			w.Lt("s.quantity", svc.QInt(r, "below", 0))
+		} else {
+			w.Lte("s.quantity", svc.QInt(r, "threshold", 10))
+		}
 		w.Eq("s.warehouse_id", svc.Q(r, "warehouse_id"))
+		w.Like("p.name", svc.Q(r, "product_name"))
 		order := svc.OrderBy(r, svc.Sortable{
 			"quantity_asc":  {Col: "s.quantity", Type: "int"},
 			"quantity_desc": {Col: "s.quantity", Desc: true, Type: "int"},

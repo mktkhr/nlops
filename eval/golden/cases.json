@@ -93,10 +93,19 @@
           }
         }
       },
-      "required_tools": [
-        "inventory.listLowStock"
-      ],
-      "forbidden_tools": []
+      "required_tools": [],
+      "forbidden_tools": [],
+      "navigate": {
+        "expected": true,
+        "route": "/stock",
+        "filters": {
+          "below": {
+            "match": "equals",
+            "value": "5"
+          }
+        }
+      },
+      "note": "在庫画面ができたので遷移が正しい。「下回る」は未満なので below。"
     },
     {
       "id": "A05",
@@ -255,10 +264,19 @@
         ],
         "args": {}
       },
-      "required_tools": [
-        "inventory.listLowStock"
-      ],
-      "forbidden_tools": []
+      "required_tools": [],
+      "forbidden_tools": [],
+      "navigate": {
+        "expected": true,
+        "route": "/stock",
+        "filters": {
+          "warehouse_id": {
+            "match": "equals",
+            "value": "WH_OSAKA"
+          }
+        }
+      },
+      "note": "倉庫の指定が絞り込みとして画面へ渡ること。「少なくなっている」は画面既定の at_most=10 に委ねてよい。"
     },
     {
       "id": "B04",
@@ -963,7 +981,7 @@
       "category": "permission",
       "user_id": "u_wh",
       "query": "在庫が少ない商品を教えて",
-      "note": "倉庫ロールでも在庫は参照できる。",
+      "note": "倉庫ロールでも在庫は参照できる。遷移先の画面を実際に開いて権限を確かめる。",
       "expected_services": [
         "inventory"
       ],
@@ -973,12 +991,14 @@
         ],
         "args": {}
       },
-      "required_tools": [
-        "inventory.listLowStock"
-      ],
+      "required_tools": [],
       "forbidden_tools": [],
       "permission": {
         "expect_denied": false
+      },
+      "navigate": {
+        "expected": true,
+        "route": "/stock"
       }
     },
     {
@@ -1415,13 +1435,18 @@
       "category": "navigate",
       "user_id": "u_admin",
       "query": "在庫が5個を下回っている商品を出して",
-      "note": "在庫画面は存在しないので遷移できない。Tool を使う。",
+      "note": "在庫画面ができたので遷移する。以前は画面が無く Tool を使うのが正解だった。",
       "navigate": {
-        "expected": false
+        "expected": true,
+        "route": "/stock",
+        "filters": {
+          "below": {
+            "match": "equals",
+            "value": "5"
+          }
+        }
       },
-      "required_tools": [
-        "inventory.listLowStock"
-      ]
+      "required_tools": []
     },
     {
       "id": "N23",
@@ -1605,14 +1630,14 @@
       "user_id": "u_admin",
       "query": "在庫が0個の商品を出して",
       "max_steps": 3,
-      "first_call": {
-        "acceptable_tools": [
-          "inventory.listLowStock"
-        ],
-        "args": {
-          "threshold": {
+      "note": "「0個」は 1 未満。境界の言い換えができるかを見る。",
+      "navigate": {
+        "expected": true,
+        "route": "/stock",
+        "filters": {
+          "below": {
             "match": "equals",
-            "value": 0
+            "value": "1"
           }
         }
       }
@@ -1766,9 +1791,22 @@
       "user_id": "u_admin",
       "query": "東京倉庫で在庫が10個以下の商品を出して",
       "max_steps": 4,
-      "required_tools": [
-        "inventory.listLowStock"
-      ]
+      "required_tools": [],
+      "navigate": {
+        "expected": true,
+        "route": "/stock",
+        "filters": {
+          "warehouse_id": {
+            "match": "equals",
+            "value": "WH_TOKYO"
+          },
+          "at_most": {
+            "match": "equals",
+            "value": "10"
+          }
+        }
+      },
+      "note": "「10個以下」を落とさずに at_most へ載せられるかを見る。境界 (未満/以下) の取り違えも検出する。"
     },
     {
       "id": "A13",
@@ -3425,6 +3463,30 @@
       "forbidden_tools": [],
       "max_steps": 4,
       "note": "対照。氏名で 1 件に絞れているのでガードは働いてはいけない (誤検知の検出)。件数の求め方は order.search でも order.countByStatus でもよい。"
+    },
+    {
+      "id": "X16",
+      "category": "exploration",
+      "user_id": "u_admin",
+      "query": "在庫が5個を下回っている商品の在庫数を合計すると何個ですか",
+      "note": "画面は一覧と件数しか出せない。合計を求める要求は Tool へ回る必要がある。在庫画面の追加で listLowStock の被覆が消えたため足した。",
+      "expected_services": [
+        "inventory"
+      ],
+      "first_call": {
+        "acceptable_tools": [
+          "inventory.listLowStock"
+        ],
+        "args": {}
+      },
+      "required_tools": [
+        "inventory.listLowStock"
+      ],
+      "forbidden_tools": [],
+      "navigate": {
+        "expected": false
+      },
+      "max_steps": 3
     }
   ]
 }

@@ -19,6 +19,9 @@ const OrderPage = lazy(() =>
 const CustomerPage = lazy(() =>
   import('../features/customer/CustomerPage').then((m) => ({ default: m.CustomerPage })),
 )
+const StockPage = lazy(() =>
+  import('../features/stock/StockPage').then((m) => ({ default: m.StockPage })),
+)
 const AuditPage = lazy(() =>
   import('../features/audit/AuditPage').then((m) => ({ default: m.AuditPage })),
 )
@@ -38,7 +41,8 @@ export default function App() {
               <Route path="/assistant" element={<AssistantPage />} />
               <Route path="/orders" element={<OrderPage />} />
               <Route path="/customers" element={<CustomerPage />} />
-              <Route path="/audit" element={<AuditPage />} />
+              <Route path="/stock" element={<StockPage />} />
+          <Route path="/audit" element={<AuditPage />} />
               <Route path="*" element={<Navigate to="/assistant" replace />} />
             </Routes>
           </Suspense>

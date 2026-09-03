@@ -162,6 +162,20 @@ export function fetchOrders(
   return get(`/api/orders?${queryOf(params)}`, userId)
 }
 
+export type Stock = {
+  productId: string
+  productName: string
+  warehouseId: string
+  quantity: number
+}
+
+export function fetchStock(
+  userId: string,
+  params: Record<string, string | number>,
+): Promise<{ items: Stock[]; count: number; hasMore: boolean }> {
+  return get(`/api/stock?${queryOf(params)}`, userId)
+}
+
 export function fetchCustomers(
   userId: string,
   params: Record<string, string | number>,

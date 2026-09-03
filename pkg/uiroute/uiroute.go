@@ -33,9 +33,17 @@ type Route struct {
 
 // Filter は画面が受け付ける絞り込み条件。
 type Filter struct {
-	Type        string   `json:"type"`
-	Enum        []string `json:"enum,omitempty"`
-	Description string   `json:"description"`
+	Type string   `json:"type"`
+	Enum []string `json:"enum,omitempty"`
+
+	// Pattern は値の形。JSON Schema の pattern としてそのまま渡す。
+	//
+	// llama.cpp は pattern を GBNF に落とすので、**形の合わない値は
+	// 生成できなくなる**。数値を期待する欄に「残りわずか」と書かれる失敗を
+	// 実測したため入れた (説明文に例として書いた語を、値として写していた)。
+	Pattern string `json:"pattern,omitempty"`
+
+	Description string `json:"description"`
 }
 
 // Load は画面定義を読み込む。

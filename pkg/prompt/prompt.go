@@ -283,6 +283,19 @@ func renderFilters(r uiroute.Route) string {
 // ID 系は出所検証 (UnresolvedIDs / AmbiguousIDs) が別に見ている。
 var NarrowingParams = map[string]bool{"status": true, "region": true, "period": true}
 
+// filterSchema は画面フィルタ 1 つ分のスキーマを返す。
+// pattern を持つものは**形の合わない値を生成できなくなる**。
+func filterSchema(f uiroute.Filter) map[string]any {
+	m := map[string]any{"type": "string"}
+	if len(f.Enum) > 0 {
+		m["enum"] = f.Enum
+	}
+	if f.Pattern != "" {
+		m["pattern"] = f.Pattern
+	}
+	return m
+}
+
 // reasonMaxLen は reason フィールドの上限文字数。
 //
 // これが無いと、結果集合が大きいときにモデルが reason の中へ
@@ -335,11 +348,7 @@ func LoopSchema(tools []toolschema.Tool, routes *uiroute.Catalog, strictArgs, al
 			props := map[string]any{}
 			for _, n := range r.FilterNames() {
 				f := r.Filters[n]
-				m := map[string]any{"type": "string"}
-				if len(f.Enum) > 0 {
-					m["enum"] = f.Enum
-				}
-				props[n] = m
+				props[n] = filterSchema(f)
 			}
 			variants = append(variants, map[string]any{
 				"type": "object",
@@ -490,10 +499,7 @@ func NavigateOnlySchema(routes *uiroute.Catalog) *llm.JSONSchema {
 		props := map[string]any{}
 		for _, n := range r.FilterNames() {
 			f := r.Filters[n]
-			m := map[string]any{"type": "string"}
-			if len(f.Enum) > 0 {
-				m["enum"] = f.Enum
-			}
+			m := filterSchema(f)
 			props[n] = m
 		}
 		variants = append(variants, map[string]any{

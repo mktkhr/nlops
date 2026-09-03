@@ -46,6 +46,31 @@
           "description": "担当地域"
         }
       }
+    },
+    {
+      "path": "/stock",
+      "title": "在庫一覧",
+      "description": "倉庫ごとの在庫数の一覧画面。数量の少ない順に並び、しきい値で絞り込める。表示されるのは在庫数であって、注文・出荷・請求ではない。",
+      "filters": {
+        "below": {
+          "type": "string",
+          "pattern": "^[0-9]{1,4}$",
+          "description": "この数量**未満**で絞る。半角数字のみ。「5個を下回る」なら 5、「3個未満」なら 3。「〜以下」なら below ではなく at_most を使う。数量の指定が無い要求では両方とも省略する。"
+        },
+        "warehouse_id": {
+          "type": "string",
+          "enum": [
+            "WH_TOKYO",
+            "WH_OSAKA"
+          ],
+          "description": "倉庫。指定しなければ全倉庫。"
+        },
+        "at_most": {
+          "type": "string",
+          "pattern": "^[0-9]{1,4}$",
+          "description": "この数量**以下**で絞る。半角数字のみ。「10個以下」なら 10、「3個まで」なら 3。"
+        }
+      }
     }
   ]
 }

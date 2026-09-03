@@ -57,7 +57,7 @@ bff/              Backend For Frontend (Presentation / Orchestration のみ)
   internal/audit/   トレースと更新承認の永続化 (audit schema を所有)
 frontend/         React + MUI (pnpm + Vite+)
   src/app/          シェルとルーティング
-  src/features/     assistant / order / customer / audit
+  src/features/     assistant / order / customer / stock / audit
   src/shared/       api / ui / user
   (テスト: cd frontend && pnpm test)
 eval/             評価ハーネス
