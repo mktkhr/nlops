@@ -311,6 +311,12 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 	executed := false
 	// barren は「収穫のない結果」が連続した回数。
 	barren := 0
+	// duplicated は同一の呼び出しを繰り返したかどうか。
+	//
+	// **空振りより強い証拠として別に持つ。** 0 件の検索には条件を広げる余地が
+	// あるが、同じ呼び出しの繰り返しには新しい情報が一切なく、結果は既に
+	// 文脈にある。手が尽きたことを Executor 側が知っている状態である。
+	duplicated := false
 	// navigated は画面遷移で終わったか。終わっていれば最終回答は作らない。
 	navigated := false
 	// seenCalls は実行済みの (Tool, 引数) の組。小型モデルが同じ呼び出しを
@@ -363,7 +369,12 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 			schema = prompt.WriteSchema(writeTools, r.Commands, opt.StrictArgs, executed)
 		}
 		// 空振りが続いたら Tool の選択肢自体を外す。プロンプトでの依頼より確実。
-		forced := opt.StopGuard && executed && barren >= 2
+		//
+		// 重複呼び出しは 1 回で打ち切る。空振り 2 回を待つと、その 2 回ぶん
+		// step を消費してからしか止まらない。実測では step 超過 64 件のうち
+		// **63 件 (98%) が duplicate_call を踏んでいた** (gemma-4-26B-A4B)。
+		// 「もう十分だ」という判断をモデルに委ねず、実行済みという事実で決める。
+		forced := opt.StopGuard && executed && (barren >= 2 || duplicated)
 		if forced {
 			schema = prompt.FinishOnlySchema()
 		}
@@ -473,6 +484,7 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 		sig := callSignature(decision.Tool, decision.Arguments)
 		var res executor.Result
 		if seenCalls[sig] {
+			duplicated = true
 			res = executor.Result{Tool: decision.Tool, Error: ErrDuplicateCall +
 				": この Tool と引数の組み合わせは実行済みで、結果は上にあります。" +
 				"別の Tool を選ぶか、情報が揃っているなら finish してください。"}
