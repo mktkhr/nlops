@@ -1630,16 +1630,24 @@
       "user_id": "u_admin",
       "query": "在庫が0個の商品を出して",
       "max_steps": 3,
-      "note": "「0個」は 1 未満。境界の言い換えができるかを見る。",
+      "note": "「0個」は below=1 でも at_most=0 でも正しい。どちらでも合格にする。",
       "navigate": {
         "expected": true,
         "route": "/stock",
-        "filters": {
-          "below": {
-            "match": "equals",
-            "value": "1"
+        "filters_any_of": [
+          {
+            "below": {
+              "match": "equals",
+              "value": "1"
+            }
+          },
+          {
+            "at_most": {
+              "match": "equals",
+              "value": "0"
+            }
           }
-        }
+        ]
       }
     },
     {

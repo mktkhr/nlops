@@ -181,6 +181,10 @@ func (c *Client) applyThinkingDefaults(req *Request) {
 }
 
 func (c *Client) Chat(ctx context.Context, req Request) (*Response, error) {
+	// モデル ID が claude 系なら CLI 経由。BaseURL は使わない。
+	if IsCLIModel(req.Model) {
+		return c.chatCLI(ctx, req)
+	}
 	c.applyThinkingDefaults(&req)
 
 	body, err := json.Marshal(req)

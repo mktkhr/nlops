@@ -22,6 +22,19 @@ import (
 // onDelta が空文字でない値を返したら、そこで生成を打ち切る。
 // 回答にシステムプロンプトが混ざったときに、**流し切る前に止める**ために使う。
 func (c *Client) ChatStream(ctx context.Context, req Request, onDelta func(string) bool) (*Response, error) {
+	// CLI 経路は逐次出力を取らない。--output-format stream-json で取れるが、
+	// **測定用の経路なので体感速度に意味がない。** 生成し終えてから 1 回で渡す。
+	// 呼び出し側 (回答へのシステムプロンプト混入検査) は同じように動く。
+	if IsCLIModel(req.Model) {
+		resp, err := c.chatCLI(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		if onDelta != nil && resp.Text() != "" {
+			onDelta(resp.Text())
+		}
+		return resp, nil
+	}
 	c.applyThinkingDefaults(&req)
 	req.Stream = true
 	req.StreamOptions = &StreamOptions{IncludeUsage: true}

@@ -47,6 +47,14 @@ type NavigateExpect struct {
 	Expected bool               `json:"expected"`
 	Route    string             `json:"route,omitempty"`
 	Filters  map[string]Matcher `json:"filters,omitempty"`
+
+	// FiltersAnyOf は「どれか 1 つに合えばよい」フィルタ集合。
+	//
+	// 同じ条件を複数の書き方で表せる場合がある。「在庫が0個」は
+	// below=1 でも at_most=0 でも正しい。片方だけを期待値に書くと、
+	// **特定のモデルの言い回しを正解として固定してしまう。**
+	// モデルを入れ替えて比較するときに、正しい出力を落としてしまうので分ける。
+	FiltersAnyOf []map[string]Matcher `json:"filters_any_of,omitempty"`
 }
 
 // Check は実際の遷移結果を採点する。
@@ -73,7 +81,25 @@ func (n *NavigateExpect) Check(route string, filters map[string]string) (bool, s
 			return false, fmt.Sprintf("フィルタ %s の値が %q", k, v)
 		}
 	}
+	if len(n.FiltersAnyOf) > 0 {
+		for _, want := range n.FiltersAnyOf {
+			if matchesAll(want, filters) {
+				return true, ""
+			}
+		}
+		return false, fmt.Sprintf("どの書き方にも合わない (実際: %v)", filters)
+	}
 	return true, ""
+}
+
+func matchesAll(want map[string]Matcher, got map[string]string) bool {
+	for k, m := range want {
+		v, ok := got[k]
+		if !ok || !m.Matches(v) {
+			return false
+		}
+	}
+	return true
 }
 
 // ProposalExpect は更新提案の期待。
