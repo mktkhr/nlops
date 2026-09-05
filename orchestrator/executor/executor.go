@@ -114,6 +114,7 @@ func (e *Executor) Reset(query string) {
 var (
 	tokenPattern = regexp.MustCompile(`[A-Za-z][A-Za-z0-9_-]{2,}`)
 	idParamName  = regexp.MustCompile(`(^|_)id$`)
+	namePattern  = regexp.MustCompile(`(^|_)name$`)
 )
 
 // ErrUnresolvedID は未解決 ID を差し戻すときのメッセージ。
@@ -259,7 +260,9 @@ func (e *Executor) markAmbiguity(v any, sortedTop bool) {
 			continue
 		}
 		// 並べ替えを指定した検索の先頭行は一意に定まる。
-		determinate := sortedTop && i == 0
+		// 利用者が行の名称をそのまま書いていた場合も、モデルが候補から
+		// 選び取ったのではなく**名指しされた**ので一意に定まる。
+		determinate := (sortedTop && i == 0) || e.namedInQuery(row)
 		for k, val := range row {
 			s, ok := val.(string)
 			if !ok || s == "" || !idParamName.MatchString(k) {
@@ -274,6 +277,39 @@ func (e *Executor) markAmbiguity(v any, sortedTop bool) {
 			}
 		}
 	}
+}
+
+// namedInQuery は行の名称が利用者の入力にそのまま含まれるかを見る。
+//
+// queryIDs は `[A-Za-z][A-Za-z0-9_-]{2,}` で作るので **ASCII の ID しか拾えない。**
+// 「東京倉庫の P001 の在庫数は」と書かれても、listWarehouses が返す
+// WH_TOKYO とは結び付かず、倉庫が 2 件あるだけで「2 件のうちの 1 件」と
+// 差し戻していた。モデルは正しく解決したのに進めなくなり、
+// 同じ呼び出しを繰り返して step 超過で終わる (実測: Qwen3.8 の W23/X15/B17)。
+//
+// **包含の向きが重要。** 「入力が行の名称を含む」ときだけ一意とする。
+// 逆向き (行の名称が入力の語を含む) にすると、
+// 「ワイヤレスマウス」で 51 件ヒットする商品すべてが一意になってしまう。
+// 名称がちょうど「ワイヤレスマウス」の 1 件だけが名指しであり、
+// 「ワイヤレスマウス Lite 1010」は名指しではない。
+func (e *Executor) namedInQuery(row map[string]any) bool {
+	if e.query == "" {
+		return false
+	}
+	for k, v := range row {
+		if !namePattern.MatchString(k) {
+			continue
+		}
+		s, ok := v.(string)
+		// 1 文字の名称は偶然一致しやすいので採らない。
+		if !ok || len([]rune(s)) < 2 {
+			continue
+		}
+		if strings.Contains(e.query, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // asInt は count のような数値を int で取り出す。

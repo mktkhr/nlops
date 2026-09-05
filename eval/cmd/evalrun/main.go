@@ -193,6 +193,20 @@ func grade(c golden.Case, tr *loop.Trace, model, mode, bffURL string) outcome {
 			o.MissingTools = append(o.MissingTools, t)
 		}
 	}
+	if len(c.RequiredAnyOf) > 0 {
+		hit := false
+		for _, t := range c.RequiredAnyOf {
+			if usedSet[t] {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			o.RequiredOK = false
+			o.MissingTools = append(o.MissingTools, "いずれか: "+strings.Join(c.RequiredAnyOf, " / "))
+		}
+	}
+
 	o.ForbidOK = true
 	for _, t := range c.ForbiddenTools {
 		if usedSet[t] {

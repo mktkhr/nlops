@@ -26,7 +26,15 @@ type Case struct {
 	ExpectedServices []string  `json:"expected_services"`
 	FirstCall        FirstCall `json:"first_call"`
 	RequiredTools    []string  `json:"required_tools"`
-	ForbiddenTools   []string  `json:"forbidden_tools"`
+
+	// RequiredAnyOf は「どれか 1 つを使っていればよい」Tool の集合。
+	//
+	// 同じ問いに複数の正しい経路があることがある。「注文 O-1008 の出荷は
+	// どの業者ですか」は shipping.getStatus でも shipping.search でも
+	// 1 手で carrier が取れる。**片方だけを必須にすると、より短い経路を
+	// 選んだモデルを落とす。** FiltersAnyOf と同じ理由で分けてある。
+	RequiredAnyOf  []string `json:"required_any_of,omitempty"`
+	ForbiddenTools []string `json:"forbidden_tools"`
 
 	Permission *Permission `json:"permission,omitempty"`
 

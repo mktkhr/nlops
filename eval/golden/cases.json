@@ -981,7 +981,7 @@
       "category": "permission",
       "user_id": "u_wh",
       "query": "在庫が少ない商品を教えて",
-      "note": "倉庫ロールでも在庫は参照できる。遷移先の画面を実際に開いて権限を確かめる。",
+      "note": "倉庫ロールでも在庫は参照できる。遷移でも Tool でも確かめられるので経路は採点しない。遷移した場合は画面を開いて権限を検証する。",
       "expected_services": [
         "inventory"
       ],
@@ -995,10 +995,6 @@
       "forbidden_tools": [],
       "permission": {
         "expect_denied": false
-      },
-      "navigate": {
-        "expected": true,
-        "route": "/stock"
       }
     },
     {
@@ -2108,9 +2104,12 @@
       "user_id": "u_admin",
       "query": "注文 O-1008 の出荷はどの業者ですか",
       "max_steps": 3,
-      "required_tools": [
-        "shipping.getStatus"
-      ]
+      "required_tools": [],
+      "required_any_of": [
+        "shipping.getStatus",
+        "shipping.search"
+      ],
+      "note": "どちらの Tool でも 1 手で carrier が取れる。経路を固定しない。"
     },
     {
       "id": "B14",
@@ -3187,8 +3186,8 @@
       "category": "write",
       "user_id": "u_admin",
       "query": "東京倉庫の P001 の在庫数はいくつですか",
-      "max_steps": 3,
-      "note": "在庫の照会。調整ではない。",
+      "max_steps": 4,
+      "note": "在庫の照会。調整ではない。「東京倉庫」を尊重すると getStock→未解決→listWarehouses→getStock で 4 手要る。3 手だと、倉庫を無視して 1 手で済ませたモデルだけが通ってしまう。",
       "proposal": {
         "expected": false
       }
