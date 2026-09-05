@@ -2256,3 +2256,82 @@ A12 では条件を落としても遷移が成功に見えた。W23 では条件
 測りやすい。** 別のモデルを通して初めて分かる。
 今回 181 件のうち 5 件が該当した。モデルを入れ替える予定があるなら、
 期待値は経路ではなく**結果**で書くべきだった。
+
+## gpt-oss が Loop で成立しない原因 (2026-09-05, 解決)
+
+plan.md の未解決項目 5。**過去の推定はすべて外れていた。**
+
+| 疑っていたもの | 実測 |
+|---|---|
+| harmony 形式と制約デコードの相互作用 | 単純スキーマなら正常に動く |
+| 実スキーマの複雑さ | 24 Tool 全部の最上位 `anyOf` でも正常 |
+| プロンプト長 | 16,066 トークンでも正常 |
+| `chat_template_kwargs.enable_thinking` | 送っても送らなくても同じ |
+| temperature を送っていること | 単独では壊れない |
+
+手で組んだ再現ではどうやっても壊れなかったので、`NLOPS_DUMP_REQUEST` を足して
+**実際に送っている本文を捕まえ**、それを再送して再現させた。
+
+### 原因: reasoning チャネルが無拘束で、反復に落ちる
+
+制約デコードの文法は **content にしか掛からない。** reasoning チャネルは自由に書ける。
+捕まえた失敗本文の reasoning がこうなっていた。
+
+```
+Use below? We can use below=5. So navigate? No screen for low stock.
+Must use tool inventory.listLowStock. We need to call inventory.listLowStock with below?
+Actually tool...
+```
+
+`below` と `at_most` と `threshold` の間で決めきれず、同じ検討を書き続けて
+出力枠を使い切る。**content は空のまま終わる。** Loop から見ると
+「max_tokens 到達、生成は空」であり、モデルが弱いようにしか見えない。
+
+同一本文での解除条件。
+
+| 条件 | finish | 出力 tok | content |
+|---|---|--:|---|
+| temperature=0 (現行) | length | 512 | **空** |
+| temperature=0.3 | stop | 96 | 正常 |
+| temperature=0.7 | stop | 152 | 正常 |
+| temp=0 + repeat_penalty 1.1 | stop | 101 | 正常 |
+| temp=0 + presence_penalty 1.0 | stop | 82 | 正常 |
+
+nlops は再現性のため全モデルに `Temperature: 0` を送っている。
+**貪欲デコードは反復に落ちやすい。** 文法で守られていない reasoning チャネルでは、
+それが「何も出力しない」という形で表面化する。
+
+### gemma の thinking ON は別の機構だった
+
+「同じ機構だろう」と推測したが、**測ったら違った。**
+
+| 解除条件 | gpt-oss 20B | gemma4-12b (thinking ON) |
+|---|---|---|
+| temperature 0.3 / 0.7 | 直る | **直らない** |
+| presence_penalty 1.0 | 直る | **直らない** |
+| repeat_penalty 1.1 | 直る | 直る (2,021/2,048 で辛うじて) |
+| 枠を 16,384 まで拡大 | — | **直らない** (全部使って空) |
+
+gemma の reasoning はこうなっていた。
+
+```
+Maybe I should just pick `SHIPPED`.
+Wait, I'll try to find a reason. Let's look at the status list again:
+PLACED, CONFIRMED, SHIPPED, DELIVERED, CANCELLED.
+If I pick `SHIPPED`, it's "shipped". If I pick `PLACED`, it's "placed".
+Actually, I'll just omit the status because...
+```
+
+「まだ届いていない注文」の状態を決めきれず、候補を挙げては戻る。
+gpt-oss のような確率的な反復ではなく、**課題が決定不能で思考を終える判断ができない。**
+だからサンプリングでは抜けられず、枠を 8 倍にしても抜けられない。
+反復ペナルティだけが「同じ語を書きにくくする」形で強制的に打ち切らせる。
+
+**共通しているのは「文法が content にしか掛からない」という構造だけで、
+そこで何が起きるかはモデルごとに違う。**
+
+### 実務上の帰結
+
+- `llm.Client` に `RepeatPenalty` を足した。**既定 0 で送らないので現行の挙動は変わらない。**
+- gpt-oss の 12% は不当な評価だった。空出力の失敗は `repeat_penalty 1.1` で消える。
+- gemma の thinking ON は救えない。既定を thinking OFF にしている判断は正しかった。

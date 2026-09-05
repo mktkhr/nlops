@@ -73,6 +73,7 @@ func main() {
 		noGuard  = flag.Bool("no-guard", false, "未解決 ID の差し戻しを無効化する")
 		noAmbig  = flag.Bool("no-ambiguity-guard", false, "曖昧な ID での読み取りの差し戻しを無効化する (比較計測用)")
 		reason   = flag.String("reasoning", "none", "reasoning_effort (gpt-oss 系は low)")
+		repeatP  = flag.Float64("repeat-penalty", 0, "反復ペナルティ。0 で送らない。reasoning が同じ検討を書き続けて content が空になるモデルへの対処")
 		thinking = flag.Bool("thinking", false, "モデルの思考を有効にする (比較計測用)。max_tokens を 2048 以上にすること")
 		maxTok   = flag.Int("max-tokens", 512, "1 反復あたりの max_tokens")
 		gate     = flag.Bool("intent-gate", true, "Loop の前に navigate / tool を2択で判定する")
@@ -123,6 +124,7 @@ func main() {
 
 	lc := llm.New(*base)
 	lc.ReasoningEffort = *reason
+	lc.RepeatPenalty = *repeatP
 	runner := loop.New(cat, lc)
 	if *rtPath != "" {
 		routes, err := uiroute.Load(*rtPath)

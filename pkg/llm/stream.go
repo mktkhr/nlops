@@ -35,7 +35,7 @@ func (c *Client) ChatStream(ctx context.Context, req Request, onDelta func(strin
 		}
 		return resp, nil
 	}
-	c.applyThinkingDefaults(&req)
+	c.applyDefaults(&req)
 	req.Stream = true
 	req.StreamOptions = &StreamOptions{IncludeUsage: true}
 

@@ -79,7 +79,7 @@ Tool Registry の入力になるので、実装より先に確定させる。
 | 8 | strict スキーマのコスト | **決着**: 124 Tool で +30%、504 Tool で **+111〜123%**。Executor 側検証へ逃がせば loose のレイテンシは Tool 数にほぼ非依存 |
 | 3 | 小型 dense が MoE 35B-A3B を精度タスクで上回るか | **決着**: Gemma 4 12B が 40/40 で最高成績 |
 | 4 | context 削減と cache-reuse のトレードオフ | **決着**: 履歴圧縮は禁止。Projection のみで削減する |
-| 5 | gpt-oss 20B が Loop で成立しない原因 | **未解決**。harmony 形式と制約デコードの相互作用を疑っている |
+| 5 | gpt-oss 20B が Loop で成立しない原因 | **解決** (2026-09-05)。harmony とは無関係。制約デコードの文法は content にしか掛からず、無拘束の reasoning が temperature 0 の貪欲デコードで反復に落ちて枠を使い切る。`repeat_penalty 1.1` で 12% → 70%。gemma の thinking ON は別機構で救えない |
 | 6 | Projection の精度への寄与 | **未検証**。結果集合が小さくコスト差 (+23% tok) しか観測できていない |
 
 ## P9. スケール検証

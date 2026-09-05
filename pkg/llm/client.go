@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -33,7 +34,15 @@ type Request struct {
 	// ReasoningEffort="none" と ChatTemplateKwargs{"enable_thinking":false} は
 	// どちらも Qwen3.6 系の thinking を止める。llama.cpp 側の実装差を吸収するため
 	// 既定では両方送る (DisableThinking を参照)。
-	ReasoningEffort    string         `json:"reasoning_effort,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+
+	// RepeatPenalty は反復ペナルティ。
+	//
+	// 制約デコードの文法は content にしか掛からず、**reasoning チャネルは無拘束**である。
+	// そこで temperature 0 の貪欲デコードを使うと、モデルが同じ検討を書き続けて
+	// 出力枠を使い切り、content が空のまま終わることがある (実測: gpt-oss 20B)。
+	// 0 のときは送らないので、既定の挙動は変わらない。
+	RepeatPenalty      float64        `json:"repeat_penalty,omitempty"`
 	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
 
 	// Stream は ChatStream が立てる。呼び出し側で指定するものではない。
@@ -148,6 +157,11 @@ type Client struct {
 	// "none" が解釈されず思考が止まらないため "low" を指定する必要がある。
 	// モデルごとに変わるので外から差し替えられるようにしてある。
 	ReasoningEffort string
+
+	// RepeatPenalty は反復ペナルティの既定値。0 なら送らない。
+	// reasoning チャネルの反復で content が空になるモデルへの対処
+	// (Request.RepeatPenalty のコメントを参照)。
+	RepeatPenalty float64
 }
 
 // New は既定設定のクライアントを作る。
@@ -162,6 +176,15 @@ func New(baseURL string) *Client {
 // Chat は 1 回の chat completion を実行する。
 // applyThinkingDefaults は思考を止める指定を埋める。
 // Chat と ChatStream で同じ扱いにするために切り出してある。
+// applyDefaults は Client 側の既定を Request へ埋める。
+// Chat と ChatStream で同じ扱いにするために切り出してある。
+func (c *Client) applyDefaults(req *Request) {
+	if req.RepeatPenalty == 0 {
+		req.RepeatPenalty = c.RepeatPenalty
+	}
+	c.applyThinkingDefaults(req)
+}
+
 func (c *Client) applyThinkingDefaults(req *Request) {
 	if !c.DisableThinking {
 		return
@@ -185,12 +208,13 @@ func (c *Client) Chat(ctx context.Context, req Request) (*Response, error) {
 	if IsCLIModel(req.Model) {
 		return c.chatCLI(ctx, req)
 	}
-	c.applyThinkingDefaults(&req)
+	c.applyDefaults(&req)
 
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("リクエスト整形: %w", err)
 	}
+	dumpRequest(body)
 
 	start := time.Now()
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/v1/chat/completions", bytes.NewReader(body))
@@ -229,4 +253,24 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// dumpRequest は NLOPS_DUMP_REQUEST にパスが入っているとき、
+// 送信する本文をそのまま追記する。
+//
+// 切り分けのために要る。手で組んだ再現では壊れないのに実行時だけ壊れる、
+// という状況では**実際に送っている本文**を見るしかない。
+// 環境変数が無ければ何もしないので、通常の実行には影響しない。
+func dumpRequest(body []byte) {
+	path := os.Getenv("NLOPS_DUMP_REQUEST")
+	if path == "" {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	f.Write(body)
+	f.Write([]byte("\n"))
 }
