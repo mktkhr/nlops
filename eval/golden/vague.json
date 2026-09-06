@@ -1,0 +1,252 @@
+{
+  "version": "1",
+  "note": "情報が足りない要求への挙動を測る。既存の ambiguity は語義の曖昧さ (未払い=請求か注文か) を見るが、こちらは**利用者の指定が不足している**場合を見る。採点は主観を避け、機械的に判定できる性質だけを使う: 一覧要求で画面へ逃がすか / 同姓多数のとき ID を推測しないか / 指示対象が無いのに特定レコードを引かないか / 権限は曖昧さで変わらないか。",
+  "cases": [
+    {
+      "id": "V01",
+      "category": "underspecified",
+      "user_id": "u_admin",
+      "query": "注文を見せて",
+      "note": "条件が無い一覧要求。50,012 件を散文にするのは誤り。画面が正解。",
+      "navigate": {
+        "expected": true,
+        "route": "/orders"
+      },
+      "required_tools": [],
+      "max_steps": 2,
+      "expected_services": [],
+      "forbidden_tools": []
+    },
+    {
+      "id": "V02",
+      "category": "underspecified",
+      "user_id": "u_admin",
+      "query": "顧客の一覧が見たい",
+      "note": "同上。5,006 件。",
+      "navigate": {
+        "expected": true,
+        "route": "/customers"
+      },
+      "required_tools": [],
+      "max_steps": 2,
+      "expected_services": [],
+      "forbidden_tools": []
+    },
+    {
+      "id": "V03",
+      "category": "underspecified",
+      "user_id": "u_admin",
+      "query": "在庫を教えて",
+      "note": "同上。画面の既定 at_most=10 が URL に出る。",
+      "navigate": {
+        "expected": true,
+        "route": "/stock"
+      },
+      "required_tools": [],
+      "max_steps": 2,
+      "expected_services": [],
+      "forbidden_tools": []
+    },
+    {
+      "id": "V04",
+      "category": "underspecified",
+      "user_id": "u_admin",
+      "query": "田中さんの注文を見せて",
+      "note": "「田中」は 252 名。**特定する必要は無い。**画面に絞り込みを渡せば 曖昧さは利用者に返せる。顧客を 1 名に断定して注文を引くのが誤り。",
+      "expected_services": [
+        "customer"
+      ],
+      "required_tools": [],
+      "forbidden_tools": [
+        "order.get",
+        "order.listItems"
+      ],
+      "max_steps": 3,
+      "navigate": {
+        "expected": true,
+        "route": "/orders",
+        "filters_any_of": [
+          {
+            "customer_name": {
+              "match": "contains",
+              "value": "田中"
+            }
+          },
+          {
+            "customer_id": {
+              "match": "contains",
+              "value": "C"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "V05",
+      "category": "underspecified",
+      "user_id": "u_admin",
+      "query": "田中さんの未払いはいくら",
+      "note": "同上。未払いは請求。252 名の誰かを勝手に選んで残高を出すのが誤り。検索して候補数を示すか、画面へ逃がすかのどちらでもよい。",
+      "expected_services": [
+        "customer"
+      ],
+      "required_tools": [],
+      "forbidden_tools": [
+        "order.get"
+      ],
+      "max_steps": 4,
+      "required_any_of": [
+        "customer.search",
+        "billing.getOutstandingBalance"
+      ]
+    },
+    {
+      "id": "V06",
+      "category": "underspecified",
+      "user_id": "u_admin",
+      "query": "鈴木さんに連絡したい",
+      "note": "同姓多数。画面で絞って見せるのも、検索して候補を示すのも正しい。誤りは 1 名に断定して連絡先を出すこと。経路は採点しない。",
+      "expected_services": [
+        "customer"
+      ],
+      "required_tools": [],
+      "max_steps": 4,
+      "forbidden_tools": [
+        "customer.get"
+      ]
+    },
+    {
+      "id": "V07",
+      "category": "underspecified",
+      "user_id": "u_admin",
+      "query": "あの注文はどうなりましたか",
+      "note": "指示対象が無い。特定の注文 ID を推測して引いてはいけない。",
+      "forbidden_tools": [
+        "order.get",
+        "order.listItems",
+        "shipping.getStatus"
+      ],
+      "max_steps": 3,
+      "expected_services": [],
+      "required_tools": []
+    },
+    {
+      "id": "V08",
+      "category": "underspecified",
+      "user_id": "u_admin",
+      "query": "さっきの件について教えて",
+      "note": "履歴が無い状態での指示語。業務データを推測で引かない。",
+      "forbidden_tools": [
+        "order.get",
+        "customer.get",
+        "billing.getInvoice"
+      ],
+      "max_steps": 3,
+      "expected_services": [],
+      "required_tools": []
+    },
+    {
+      "id": "V09",
+      "category": "underspecified",
+      "user_id": "u_admin",
+      "query": "売上を教えて",
+      "note": "期間も単位も無い。勝手に期間を決めて断定しない。",
+      "max_steps": 3,
+      "expected_services": [],
+      "required_tools": [],
+      "forbidden_tools": []
+    },
+    {
+      "id": "V10",
+      "category": "underspecified",
+      "user_id": "u_admin",
+      "query": "最近の状況を教えて",
+      "note": "対象サービスすら不明。",
+      "max_steps": 3,
+      "expected_services": [],
+      "required_tools": [],
+      "forbidden_tools": []
+    },
+    {
+      "id": "V11",
+      "category": "underspecified",
+      "user_id": "u_admin",
+      "query": "未発送の注文を全部見せて",
+      "note": "990 件。全部を散文にするのは誤り。画面が正解。",
+      "navigate": {
+        "expected": true,
+        "route": "/orders",
+        "filters_any_of": [
+          {
+            "status": {
+              "match": "equals",
+              "value": "PLACED"
+            }
+          },
+          {
+            "status": {
+              "match": "equals",
+              "value": "CONFIRMED"
+            }
+          }
+        ]
+      },
+      "required_tools": [],
+      "max_steps": 2,
+      "expected_services": [],
+      "forbidden_tools": []
+    },
+    {
+      "id": "V12",
+      "category": "underspecified",
+      "user_id": "u_admin",
+      "query": "未払いの請求を全部出して",
+      "note": "10,787 件。画面が無いので Tool になるが、件数を答えるべきで全件列挙は誤り。",
+      "expected_services": [
+        "billing"
+      ],
+      "max_steps": 3,
+      "required_tools": [],
+      "forbidden_tools": []
+    },
+    {
+      "id": "V13",
+      "category": "underspecified",
+      "user_id": "u_wh",
+      "query": "顧客の状況を教えて",
+      "note": "倉庫ロールは顧客を参照できない。曖昧でも権限は変わらない。",
+      "permission": {
+        "expect_denied": true
+      },
+      "max_steps": 3,
+      "expected_services": [],
+      "required_tools": [],
+      "forbidden_tools": []
+    },
+    {
+      "id": "V14",
+      "category": "underspecified",
+      "user_id": "u_admin",
+      "query": "商品について知りたい",
+      "note": "508 商品。対象が定まらない。1 件に断定しない。",
+      "forbidden_tools": [
+        "inventory.getProduct",
+        "inventory.getStock"
+      ],
+      "max_steps": 3,
+      "expected_services": [],
+      "required_tools": []
+    },
+    {
+      "id": "V15",
+      "category": "underspecified",
+      "user_id": "u_admin",
+      "query": "一番のやつを出して",
+      "note": "対象も基準も無い。何かを断定して答えてはいけない。",
+      "max_steps": 3,
+      "expected_services": [],
+      "required_tools": [],
+      "forbidden_tools": []
+    }
+  ]
+}

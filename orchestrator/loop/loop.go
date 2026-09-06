@@ -338,7 +338,7 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 		if res.Error == "" {
 			executed = true
 		}
-		if barrenResult(res) {
+		if barrenResult(res, hasSort(call.Arguments)) {
 			barren++
 		}
 		seenCalls[callSignature(call.Tool, call.Arguments)] = true
@@ -505,7 +505,7 @@ func (r *Runner) Run(ctx context.Context, id authctx.Identity, query string, opt
 		if res.Error == "" {
 			executed = true
 		}
-		if barrenResult(res) {
+		if barrenResult(res, hasSort(decision.Arguments)) {
 			barren++
 		} else {
 			barren = 0
@@ -716,7 +716,7 @@ func historyText(hist []Turn) string {
 	return b.String()
 }
 
-func barrenResult(res executor.Result) bool {
+func barrenResult(res executor.Result, sorted bool) bool {
 	if res.Error != "" || res.Denied || (res.Status != 0 && res.Status != 200) {
 		return true
 	}
@@ -724,10 +724,43 @@ func barrenResult(res executor.Result) bool {
 	if !ok {
 		return false
 	}
-	if items, ok := m["items"].([]any); ok {
-		return len(items) == 0
+	items, ok := m["items"].([]any)
+	if !ok {
+		return len(m) == 0
 	}
-	return len(m) == 0
+	if len(items) == 0 {
+		return true
+	}
+	// 全体のごく一部しか見えていない結果は、次の一手を決める材料にならない。
+	//
+	// 並べ替えを指定していれば先頭行に意味がある (「一番古い注文」など) が、
+	// 指定が無いまま 50,012 件から 10 件が返ってきても、その 10 件は恣意的である。
+	// **実測では、対象が定まらない要求でモデルは引数なしの検索を繰り返し、
+	// 全件から切り取られた一部を見ては次も同じことをしていた** (V07/V09)。
+	// 絞り込めていないという事実は Projection 側が既に知っている。
+	if !sorted {
+		if n, ok := intOf(m["count"]); ok && n > len(items)*truncatedRatio {
+			return true
+		}
+	}
+	return false
+}
+
+// truncatedRatio は「切り詰められすぎ」と見なす倍率。
+// Projection の max_items が 10〜20 なので、この倍率だと
+// おおむね数百件以上の結果が該当する。
+const truncatedRatio = 10
+
+// intOf は count のような数値を取り出す。
+// Projection 前は JSON 由来の float64、通った後は Go の int になる。
+func intOf(v any) (int, bool) {
+	switch x := v.(type) {
+	case int:
+		return x, true
+	case float64:
+		return int(x), true
+	}
+	return 0, false
 }
 
 // resolveNavigation は LLM が出した遷移先を検証する。
@@ -870,3 +903,9 @@ func callSignature(tool string, args map[string]any) string {
 }
 
 func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
+
+// hasSort は並べ替えを明示した呼び出しかどうかを返す。
+func hasSort(args map[string]any) bool {
+	s, ok := args["sort"].(string)
+	return ok && s != ""
+}
